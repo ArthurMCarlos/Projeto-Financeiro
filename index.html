@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="https://public-frontend-cos.metadl.com/mgx/img/favicon.png" type="image/png">
+    <title>Organização Financeira</title>
+    <link rel="stylesheet" href="./style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+
+<body>
+    <div id="app">
+        <!-- Header -->
+        <header class="header">
+            <div class="container">
+                <h1>💰 Organização Financeira</h1>
+                <div class="header-actions">
+                    <button id="themeToggle" class="btn-icon" title="Alternar tema">🌙</button>
+                    <span id="userInfo" class="user-info"></span>
+                    <button id="logoutBtn" class="btn-secondary">Sair</button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Dashboard -->
+        <main class="main">
+            <div class="container">
+                <!-- Indicadores -->
+                <section class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon">💰</div>
+                        <div class="stat-content">
+                            <h3>Saldo Total</h3>
+                            <p id="totalBalance" class="stat-value">R$ 0,00</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">📉</div>
+                        <div class="stat-content">
+                            <h3>Gasto Médio Mensal</h3>
+                            <p id="avgExpense" class="stat-value">R$ 0,00</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">🏆</div>
+                        <div class="stat-content">
+                            <h3>Maior Categoria</h3>
+                            <p id="topCategory" class="stat-value">-</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">💵</div>
+                        <div class="stat-content">
+                            <h3>Total Recebido</h3>
+                            <p id="totalIncome" class="stat-value">R$ 0,00</p>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Filtros e Ações -->
+                <section class="controls">
+                    <div class="filters">
+                        <input type="month" id="monthFilter" class="input">
+                        <select id="categoryFilter" class="input">
+                            <option value="">Todas as categorias</option>
+                        </select>
+                        <input type="text" id="searchFilter" placeholder="Buscar por motivo..." class="input">
+                    </div>
+                    <div class="actions">
+                        <button id="addTransactionBtn" class="btn-primary">+ Nova Transação</button>
+                        <button id="manageCategoriesBtn" class="btn-secondary">Gerenciar Categorias</button>
+                        <div class="dropdown">
+                            <button id="exportBtn" class="btn-secondary">Exportar ▼</button>
+                            <div class="dropdown-content">
+                                <a href="#" onclick="exportData('csv')">CSV</a>
+                                <a href="#" onclick="exportData('excel')">Excel</a>
+                                <a href="#" onclick="exportData('pdf')">PDF</a>
+                            </div>
+                        </div>
+                        <input type="file" id="importFile" accept=".csv,.xlsx" style="display: none;">
+                        <button id="importBtn" class="btn-secondary">Importar</button>
+                    </div>
+                </section>
+
+                <!-- Gráficos -->
+                <section class="charts-grid">
+                    <div class="chart-container">
+                        <h3>Gastos por Categoria</h3>
+                        <canvas id="categoryChart"></canvas>
+                    </div>
+                    <div class="chart-container">
+                        <h3>Evolução Mensal</h3>
+                        <canvas id="monthlyChart"></canvas>
+                    </div>
+                    <div class="chart-container">
+                        <h3>Distribuição de Gastos</h3>
+                        <canvas id="pieChart"></canvas>
+                    </div>
+                </section>
+
+                <!-- Tabela -->
+                <section class="table-section">
+                    <div class="table-container">
+                        <table id="transactionsTable">
+                            <thead>
+                                <tr>
+                                    <th>Mês</th>
+                                    <th>Motivo</th>
+                                    <th>Valor Gasto (R$)</th>
+                                    <th>Valor Atual (R$)</th>
+                                    <th>Categoria</th>
+                                    <th>Valor Recebido (R$)</th>
+                                    <th>Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modal para Transação -->
+    <div id="transactionModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2 id="modalTitle">Nova Transação</h2>
+            <form id="transactionForm">
+                <input type="hidden" id="transactionId">
+                <div class="form-group">
+                    <label for="month">Mês:</label>
+                    <input type="month" id="month" required class="input">
+                </div>
+                <div class="form-group">
+                    <label for="reason">Motivo:</label>
+                    <input type="text" id="reason" required class="input">
+                </div>
+                <div class="form-group">
+                    <label for="expense">Valor Gasto (R$):</label>
+                    <input type="number" id="expense" step="0.01" min="0" class="input">
+                </div>
+                <div class="form-group">
+                    <label for="currentValue">Valor Atual (R$):</label>
+                    <input type="number" id="currentValue" step="0.01" class="input">
+                </div>
+                <div class="form-group">
+                    <label for="category">Categoria:</label>
+                    <select id="category" required class="input">
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="income">Valor Recebido (R$):</label>
+                    <input type="number" id="income" step="0.01" min="0" class="input">
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn-primary">Salvar</button>
+                    <button type="button" class="btn-secondary" onclick="closeModal()">Cancelar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal para Categorias -->
+    <div id="categoriesModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeCategoriesModal()">&times;</span>
+            <h2>Gerenciar Categorias</h2>
+            <div class="form-group">
+                <input type="text" id="newCategoryName" placeholder="Nome da nova categoria" class="input">
+                <button onclick="addCategory()" class="btn-primary">Adicionar</button>
+            </div>
+            <div id="categoriesList"></div>
+        </div>
+    </div>
+
+    <script src="./script.js"></script>
+    <script src="./charts.js"></script>
+</body>
+
+</html>

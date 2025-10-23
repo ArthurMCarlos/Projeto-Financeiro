@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: financial-organizer
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: MONGODB_URI
+        value: mongodb+srv://username:password@cluster.mongodb.net/
+      - key: DATABASE_NAME
+        value: financial_organizer
+    disk:
+      name: financial-data
+      mountPath: /data
+      sizeGB: 1
