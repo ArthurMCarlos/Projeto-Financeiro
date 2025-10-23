@@ -2,15 +2,17 @@ services:
   - type: web
     name: financial-organizer
     env: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT
+    region: oregon
+    plan: free
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --workers 2
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
       - key: SECRET_KEY
         generateValue: true
       - key: MONGODB_URI
-        sync: false  # Você irá adicionar manualmente
+        sync: false
       - key: DATABASE_NAME
         value: financial_organizer
     healthCheckPath: /health
