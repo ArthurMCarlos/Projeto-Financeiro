@@ -72,7 +72,7 @@ def token_required(f):
             data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
             current_user_id = data['user_id']
             
-            if db:
+            if db is not None:
                 current_user = users_collection.find_one({'_id': ObjectId(current_user_id)})
             else:
                 current_user = next((u for u in memory_storage['users'] if u['_id'] == current_user_id), None)
@@ -120,6 +120,7 @@ def get_next_id():
 
 @app.route('/')
 def index():
+    db_status = db is not None
     return render_template_string("""
     <!DOCTYPE html>
     <html lang="pt-BR">
@@ -187,7 +188,7 @@ def index():
                         <div class="stat-label">Endpoints</div>
                     </div>
                     <div class="stat">
-                        <div class="stat-number">{{ 'MongoDB' if db else 'Memória' }}</div>
+                        <div class="stat-number">{{ 'MongoDB' if db_connected else 'Memória' }}</div>
                         <div class="stat-label">Banco de Dados</div>
                     </div>
                     <div class="stat">
@@ -261,12 +262,12 @@ def index():
             
             <div style="text-align: center; margin-top: 40px; opacity: 0.8;">
                 <p>🚀 Deploy realizado com sucesso no Render.com</p>
-                <p>💾 Dados {{ 'persistidos no MongoDB Atlas' if db else 'em memória (desenvolvimento)' }}</p>
+                <p>💾 Dados {{ 'persistidos no MongoDB Atlas' if db_connected else 'em memória (desenvolvimento)' }}</p>
             </div>
         </div>
     </body>
     </html>
-    """, db=db)
+    """, db_connected=db_status)
 
 # Authentication Routes
 @app.route('/api/auth/register', methods=['POST'])
@@ -277,7 +278,7 @@ def register():
         return jsonify({'message': 'Dados incompletos'}), 400
     
     # Check if user already exists
-    if db:
+    if db is not None:
         existing_user = users_collection.find_one({'email': data['email']})
     else:
         existing_user = next((u for u in memory_storage['users'] if u['email'] == data['email']), None)
@@ -293,7 +294,7 @@ def register():
         'created_at': datetime.utcnow()
     }
     
-    if db:
+    if db is not None:
         result = users_collection.insert_one(user_data)
         user_id = str(result.inserted_id)
     else:
@@ -314,7 +315,7 @@ def register():
             'created_at': datetime.utcnow()
         }
         
-        if db:
+        if db is not None:
             categories_collection.insert_one(category_data)
         else:
             category_data['_id'] = get_next_id()
@@ -330,7 +331,7 @@ def login():
         return jsonify({'message': 'Email e senha são obrigatórios'}), 400
     
     # Find user
-    if db:
+    if db is not None:
         user = users_collection.find_one({'email': data['email']})
     else:
         user = next((u for u in memory_storage['users'] if u['email'] == data['email']), None)
@@ -359,7 +360,7 @@ def login():
 def get_categories(current_user):
     user_id = str(current_user['_id'])
     
-    if db:
+    if db is not None:
         categories = list(categories_collection.find({'user_id': user_id}))
     else:
         categories = [c for c in memory_storage['categories'] if c['user_id'] == user_id]
@@ -382,7 +383,7 @@ def create_category(current_user):
         'created_at': datetime.utcnow()
     }
     
-    if db:
+    if db is not None:
         result = categories_collection.insert_one(category_data)
         category_id = str(result.inserted_id)
     else:
@@ -397,7 +398,7 @@ def create_category(current_user):
 def delete_category(current_user, category_id):
     user_id = str(current_user['_id'])
     
-    if db:
+    if db is not None:
         result = categories_collection.delete_one({
             '_id': ObjectId(category_id),
             'user_id': user_id
@@ -422,7 +423,7 @@ def delete_category(current_user, category_id):
 def get_transactions(current_user):
     user_id = str(current_user['_id'])
     
-    if db:
+    if db is not None:
         transactions = list(transactions_collection.find({'user_id': user_id}).sort('month', -1))
     else:
         transactions = [t for t in memory_storage['transactions'] if t['user_id'] == user_id]
@@ -452,7 +453,7 @@ def create_transaction(current_user):
         'created_at': datetime.utcnow()
     }
     
-    if db:
+    if db is not None:
         result = transactions_collection.insert_one(transaction_data)
         transaction_id = str(result.inserted_id)
     else:
@@ -478,7 +479,7 @@ def update_transaction(current_user, transaction_id):
     
     update_data['updated_at'] = datetime.utcnow()
     
-    if db:
+    if db is not None:
         result = transactions_collection.update_one(
             {'_id': ObjectId(transaction_id), 'user_id': user_id},
             {'$set': update_data}
@@ -502,7 +503,7 @@ def update_transaction(current_user, transaction_id):
 def delete_transaction(current_user, transaction_id):
     user_id = str(current_user['_id'])
     
-    if db:
+    if db is not None:
         result = transactions_collection.delete_one({
             '_id': ObjectId(transaction_id),
             'user_id': user_id
@@ -522,37 +523,25 @@ def delete_transaction(current_user, transaction_id):
     return jsonify({'message': 'Transação excluída com sucesso'})
 
 # Statistics Route
-@app.route('/api/stats', methods=['GET'])
-@token_required
-def get_stats(current_user):
-    user_id = str(current_user['_id'])
-    
-    if db:
-        transactions = list(transactions_collection.find({'user_id': user_id}))
+@app.route('/api/stats')
+def get_stats():
+    # Public endpoint - no authentication required
+    if db is not None:
+        total_users = users_collection.count_documents({})
+        total_transactions = transactions_collection.count_documents({})
+        total_categories = categories_collection.count_documents({})
     else:
-        transactions = [t for t in memory_storage['transactions'] if t['user_id'] == user_id]
-    
-    total_income = sum(t.get('income', 0) for t in transactions)
-    total_expense = sum(t.get('expense', 0) for t in transactions)
-    balance = total_income - total_expense
-    
-    # Monthly average
-    monthly_expenses = {}
-    for t in transactions:
-        month = t.get('month')
-        if month:
-            if month not in monthly_expenses:
-                monthly_expenses[month] = 0
-            monthly_expenses[month] += t.get('expense', 0)
-    
-    avg_expense = sum(monthly_expenses.values()) / len(monthly_expenses) if monthly_expenses else 0
+        total_users = len(memory_storage['users'])
+        total_transactions = len(memory_storage['transactions'])
+        total_categories = len(memory_storage['categories'])
     
     return jsonify({
-        'total_income': total_income,
-        'total_expense': total_expense,
-        'balance': balance,
-        'avg_monthly_expense': avg_expense,
-        'total_transactions': len(transactions)
+        'status': 'online',
+        'database': 'MongoDB Atlas' if db is not None else 'Memory Storage',
+        'total_users': total_users,
+        'total_transactions': total_transactions,
+        'total_categories': total_categories,
+        'version': '1.0.0'
     })
 
 # Export Routes
@@ -561,7 +550,7 @@ def get_stats(current_user):
 def export_data(current_user, format):
     user_id = str(current_user['_id'])
     
-    if db:
+    if db is not None:
         transactions = list(transactions_collection.find({'user_id': user_id}))
         categories = list(categories_collection.find({'user_id': user_id}))
     else:
@@ -569,7 +558,7 @@ def export_data(current_user, format):
         categories = [c for c in memory_storage['categories'] if c['user_id'] == user_id]
     
     # Create category lookup
-    category_lookup = {c['_id']: c['name'] for c in categories}
+    category_lookup = {str(c['_id']): c['name'] for c in categories}
     
     # Prepare data
     export_data = []
@@ -579,7 +568,7 @@ def export_data(current_user, format):
             'Motivo': t.get('reason', ''),
             'Valor Gasto (R$)': t.get('expense', 0),
             'Valor Atual (R$)': t.get('current_value', 0),
-            'Categoria': category_lookup.get(t.get('category_id'), 'Sem categoria'),
+            'Categoria': category_lookup.get(str(t.get('category_id')), 'Sem categoria'),
             'Valor Recebido (R$)': t.get('income', 0)
         })
     
@@ -621,7 +610,7 @@ def export_data(current_user, format):
             parent=styles['Heading1'],
             fontSize=16,
             spaceAfter=30,
-            alignment=1  # Center
+            alignment=1
         )
         
         # Content
@@ -661,8 +650,6 @@ def export_data(current_user, format):
         ]))
         
         content.append(table)
-        
-        # Build PDF
         doc.build(content)
         buffer.seek(0)
         
@@ -699,7 +686,7 @@ def import_data(current_user):
             return jsonify({'message': 'Formato de arquivo não suportado'}), 400
         
         # Get user categories
-        if db:
+        if db is not None:
             categories = list(categories_collection.find({'user_id': user_id}))
         else:
             categories = [c for c in memory_storage['categories'] if c['user_id'] == user_id]
@@ -722,7 +709,7 @@ def import_data(current_user):
                         'created_at': datetime.utcnow()
                     }
                     
-                    if db:
+                    if db is not None:
                         result = categories_collection.insert_one(category_data)
                         category_id = str(result.inserted_id)
                     else:
@@ -744,7 +731,7 @@ def import_data(current_user):
                     'created_at': datetime.utcnow()
                 }
                 
-                if db:
+                if db is not None:
                     transactions_collection.insert_one(transaction_data)
                 else:
                     transaction_data['_id'] = get_next_id()
@@ -788,7 +775,7 @@ def serve_static(filename):
 def health_check():
     return jsonify({
         'status': 'healthy',
-        'database': 'mongodb' if db else 'memory',
+        'database': 'mongodb' if db is not None else 'memory',
         'timestamp': datetime.utcnow().isoformat()
     })
 
