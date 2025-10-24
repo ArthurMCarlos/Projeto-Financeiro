@@ -114,7 +114,8 @@
                 if (response.ok) {
                     localStorage.setItem('token', data.token);
                     localStorage.setItem('user', JSON.stringify(data.user));
-                    window.location.href = '/';
+                    // Redirect to dashboard instead of API page
+                    window.location.href = '/index.html';
                 } else {
                     alert(data.message || 'Erro ao fazer login');
                 }
@@ -161,7 +162,7 @@
 
         // Check if already logged in
         if (localStorage.getItem('token')) {
-            window.location.href = '/';
+            window.location.href = '/index.html';
         }
     </script>
 </body>
