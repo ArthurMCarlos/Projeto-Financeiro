@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="https://img.icons8.com/?size=100&id=aTrrRPCUiwd6&format=png&color=000000" type="image/png">
+    <title>Login - Organização Financeira</title>
+    <link rel="stylesheet" href="./style.css">
+</head>
+<body class="auth-page">
+    <div class="auth-container">
+        <div class="auth-card">
+            <h1>💰 Organização Financeira</h1>
+            <!-- Formulario de Login-->
+            <div id="loginForm" class="auth-form">
+                <h2>Entrar</h2>
+                <form onsubmit="login(event)">
+                    <div class="form-group">
+                        <label for="loginEmail">Email:</label>
+                        <input type="email" id="loginEmail" required class="input">
+                    </div>
+                    <div class="form-group">
+                        <label for="loginPassword">Senha:</label>
+                        <input type="password" id="loginPassword" required class="input">
+                    </div>
+                    <button type="submit" class="btn-primary full-width">Entrar</button>
+                </form>
+                <p class="auth-switch">
+                    Não tem conta? <a href="#" onclick="showRegister()">Cadastre-se</a>
+                </p>
+            </div>
+            <!-- Register Form -->
+            <div id="registerForm" class="auth-form" style="display: none;">
+                <h2>Cadastrar</h2>
+                <form onsubmit="register(event)">
+                    <div class="form-group">
+                        <label for="registerName">Nome:</label>
+                        <input type="text" id="registerName" required class="input">
+                    </div>
+                    <div class="form-group">
+                        <label for="registerEmail">Email:</label>
+                        <input type="email" id="registerEmail" required class="input">
+                    </div>
+                    <div class="form-group">
+                        <label for="registerPassword">Senha:</label>
+                        <input type="password" id="registerPassword" required minlength="6" class="input">
+                    </div>
+                    <div class="form-group">
+                        <label for="confirmPassword">Confirmar Senha:</label>
+                        <input type="password" id="confirmPassword" required minlength="6" class="input">
+                    </div>
+                    <button type="submit" class="btn-primary full-width">Cadastrar</button>
+                </form>
+                <p class="auth-switch">
+                    Já tem conta? <a href="#" onclick="showLogin()">Entre aqui</a>
+                </p>
+            </div>
+            <div class="theme-toggle">
+                <button id="themeToggle" class="btn-icon" title="Alternar tema">🌙</button>
+            </div>
+        </div>
+    </div>
+    <script>
+        // Theme toggle
+        const themeToggle = document.getElementById('themeToggle');
+        const body = document.body;
+
+        const savedTheme = localStorage.getItem('theme') || 'light';
+        body.setAttribute('data-theme', savedTheme);
+        themeToggle.textContent = savedTheme === 'dark' ? '☀️' : '🌙';
+
+        themeToggle.addEventListener('click', () => {
+            const currentTheme = body.getAttribute('data-theme');
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            body.setAttribute('data-theme', newTheme);
+            localStorage.setItem('theme', newTheme);
+            themeToggle.textContent = newTheme === 'dark' ? '☀️' : '🌙';
+        });
+        // Auth functions
+        function showRegister() {
+            document.getElementById('loginForm').style.display = 'none';
+            document.getElementById('registerForm').style.display = 'block';
+        }
+
+        function showLogin() {
+            document.getElementById('registerForm').style.display = 'none';
+            document.getElementById('loginForm').style.display = 'block';
+        }
+
+        async function login(event) {
+            event.preventDefault();
+            const email = document.getElementById('loginEmail').value;
+            const password = document.getElementById('loginPassword').value;
+
+            try {
+                const response = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ email, password }),
+                });
+                const data = await response.json();
+
+                if (response.ok) {
+                    localStorage.setItem('token', data.token);
+                    localStorage.setItem('user', JSON.stringify(data.user));
+                    window.location.href = '/dashboard.html';
+                } else {
+                    alert(data.message || 'Erro ao fazer login');
+                }
+            } catch (error) {
+                console.error('Erro:', error);
+                alert('Erro de conexão');
+            }
+        }
+        async function register(event) {
+            event.preventDefault();
+            const name = document.getElementById('registerName').value;
+            const email = document.getElementById('registerEmail').value;
+            const password = document.getElementById('registerPassword').value;
+            const confirmPassword = document.getElementById('confirmPassword').value;
+
+            if (password !== confirmPassword) {
+                alert('As senhas não coincidem');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/auth/register', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ name, email, password }),
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    alert('Cadastro realizado com sucesso! Faça login para continuar.');
+                    showLogin();
+                } else {
+                    alert(data.message || 'Erro ao cadastrar');
+                }
+            } catch (error) {
+                console.error('Erro:', error);
+                alert('Erro de conexão');
+            }
+        }
+        if (localStorage.getItem('token')) {
+            window.location.href = '/dashboard.html';
+        }
+    </script>
+</body>
+</html>
