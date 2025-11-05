@@ -1,20 +1,17 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" href="https://public-frontend-cos.metadl.com/mgx/img/favicon.png" type="image/png">
+    <link rel="icon" href="https://img.icons8.com/?size=100&id=aTrrRPCUiwd6&format=png&color=000000" type="image/png">
     <title>Login - Organização Financeira</title>
     <link rel="stylesheet" href="./style.css">
 </head>
-
 <body class="auth-page">
     <div class="auth-container">
         <div class="auth-card">
             <h1>💰 Organização Financeira</h1>
-            
-            <!-- Login Form -->
+            <!-- Formulario de Login-->
             <div id="loginForm" class="auth-form">
                 <h2>Entrar</h2>
                 <form onsubmit="login(event)">
@@ -32,7 +29,6 @@
                     Não tem conta? <a href="#" onclick="showRegister()">Cadastre-se</a>
                 </p>
             </div>
-
             <!-- Register Form -->
             <div id="registerForm" class="auth-form" style="display: none;">
                 <h2>Cadastrar</h2>
@@ -59,19 +55,16 @@
                     Já tem conta? <a href="#" onclick="showLogin()">Entre aqui</a>
                 </p>
             </div>
-
             <div class="theme-toggle">
                 <button id="themeToggle" class="btn-icon" title="Alternar tema">🌙</button>
             </div>
         </div>
     </div>
-
     <script>
         // Theme toggle
         const themeToggle = document.getElementById('themeToggle');
         const body = document.body;
 
-        // Load saved theme
         const savedTheme = localStorage.getItem('theme') || 'light';
         body.setAttribute('data-theme', savedTheme);
         themeToggle.textContent = savedTheme === 'dark' ? '☀️' : '🌙';
@@ -83,7 +76,6 @@
             localStorage.setItem('theme', newTheme);
             themeToggle.textContent = newTheme === 'dark' ? '☀️' : '🌙';
         });
-
         // Auth functions
         function showRegister() {
             document.getElementById('loginForm').style.display = 'none';
@@ -108,14 +100,12 @@
                     },
                     body: JSON.stringify({ email, password }),
                 });
-
                 const data = await response.json();
 
                 if (response.ok) {
                     localStorage.setItem('token', data.token);
                     localStorage.setItem('user', JSON.stringify(data.user));
-                    // Redirect to dashboard instead of API page
-                    window.location.href = '/index.html';
+                    window.location.href = '/dashboard.html';
                 } else {
                     alert(data.message || 'Erro ao fazer login');
                 }
@@ -124,7 +114,6 @@
                 alert('Erro de conexão');
             }
         }
-
         async function register(event) {
             event.preventDefault();
             const name = document.getElementById('registerName').value;
@@ -159,12 +148,9 @@
                 alert('Erro de conexão');
             }
         }
-
-        // Check if already logged in
         if (localStorage.getItem('token')) {
-            window.location.href = '/index.html';
+            window.location.href = '/dashboard.html';
         }
     </script>
 </body>
-
 </html>
