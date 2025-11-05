@@ -1,5 +1,4 @@
 // Chart.js configuration and management
-
 let categoryChart, monthlyChart, pieChart;
 
 function initializeCharts() {
@@ -8,13 +7,11 @@ function initializeCharts() {
     createMonthlyChart();
     createPieChart();
 }
-
 function updateCharts(filteredTransactions = transactions) {
     updateCategoryChart(filteredTransactions);
     updateMonthlyChart(filteredTransactions);
     updatePieChart(filteredTransactions);
 }
-
 // Category Bar Chart
 function createCategoryChart() {
     const ctx = document.getElementById('categoryChart').getContext('2d');
@@ -58,7 +55,6 @@ function createCategoryChart() {
         }
     });
 }
-
 function updateCategoryChart(filteredTransactions) {
     const categoryExpenses = {};
     
@@ -79,7 +75,6 @@ function updateCategoryChart(filteredTransactions) {
     categoryChart.data.datasets[0].data = data;
     categoryChart.update();
 }
-
 // Monthly Line Chart
 function createMonthlyChart() {
     const ctx = document.getElementById('monthlyChart').getContext('2d');
