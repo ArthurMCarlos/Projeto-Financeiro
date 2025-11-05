@@ -3,6 +3,7 @@ let currentUser = null;
 let transactions = [];
 let categories = [];
 let charts = {};
+let currentPage = 'dashboard';
 
 // API Base URL
 const API_BASE = window.location.origin;
@@ -28,6 +29,9 @@ async function initializeApp() {
     // Initialize theme
     initializeTheme();
 
+    // Initialize navigation
+    initializeNavigation();
+
     // Load data
     await loadCategories();
     await loadTransactions();
@@ -37,6 +41,11 @@ async function initializeApp() {
     
     // Initialize charts
     initializeCharts();
+
+    // Initialize goals (will be called from goals.js)
+    if (typeof initializeGoals === 'function') {
+        await initializeGoals();
+    }
 }
 
 function initializeTheme() {
@@ -54,7 +63,64 @@ function initializeTheme() {
         body.setAttribute('data-theme', newTheme);
         localStorage.setItem('theme', newTheme);
         themeToggle.textContent = newTheme === 'dark' ? '☀️' : '🌙';
+        
+        // Update charts theme if function exists
+        if (typeof updateChartsTheme === 'function') {
+            updateChartsTheme();
+        }
     });
+}
+
+function initializeNavigation() {
+    const navTabs = document.querySelectorAll('.nav-tab');
+    
+    navTabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+            const page = tab.getAttribute('data-page');
+            switchPage(page);
+        });
+    });
+
+    // Set initial page
+    switchPage('dashboard');
+}
+
+function switchPage(pageName) {
+    // Update navigation
+    document.querySelectorAll('.nav-tab').forEach(tab => {
+        tab.classList.remove('active');
+    });
+    document.querySelector(`[data-page="${pageName}"]`).classList.add('active');
+
+    // Update page content
+    document.querySelectorAll('.page').forEach(page => {
+        page.classList.remove('active');
+    });
+    document.getElementById(`${pageName}-page`).classList.add('active');
+
+    currentPage = pageName;
+
+    // Page-specific initialization
+    switch (pageName) {
+        case 'goals':
+            if (typeof loadGoals === 'function') {
+                loadGoals();
+            }
+            break;
+        case 'reports':
+            initializeReports();
+            break;
+        case 'transactions':
+            displayTransactions();
+            break;
+        case 'dashboard':
+            updateStats();
+            updateCharts();
+            if (typeof displayGoalsPreview === 'function') {
+                displayGoalsPreview();
+            }
+            break;
+    }
 }
 
 function initializeEventListeners() {
@@ -88,24 +154,26 @@ function initializeEventListeners() {
 
     // Modal close
     document.querySelectorAll('.close').forEach(closeBtn => {
-        closeBtn.addEventListener('click', () => {
-            closeModal();
-            closeCategoriesModal();
+        closeBtn.addEventListener('click', (e) => {
+            const modal = e.target.closest('.modal');
+            if (modal) {
+                modal.style.display = 'none';
+            }
         });
     });
 
     // Close modal on outside click
     window.addEventListener('click', (event) => {
-        const transactionModal = document.getElementById('transactionModal');
-        const categoriesModal = document.getElementById('categoriesModal');
-        
-        if (event.target === transactionModal) {
-            closeModal();
-        }
-        if (event.target === categoriesModal) {
-            closeCategoriesModal();
+        if (event.target.classList.contains('modal')) {
+            event.target.style.display = 'none';
         }
     });
+
+    // Reports
+    const generateReportBtn = document.getElementById('generateReportBtn');
+    if (generateReportBtn) {
+        generateReportBtn.addEventListener('click', generateReport);
+    }
 }
 
 // API Functions
@@ -170,6 +238,11 @@ function updateCategorySelects() {
         categorySelect.add(option1);
         categoryFilter.add(option2);
     });
+
+    // Update goal category select if function exists
+    if (typeof updateGoalCategorySelect === 'function') {
+        updateGoalCategorySelect();
+    }
 }
 
 async function addCategory() {
@@ -233,6 +306,11 @@ async function loadTransactions() {
         displayTransactions();
         updateStats();
         updateCharts();
+        
+        // Update goal progress from transactions if function exists
+        if (typeof updateGoalProgressFromTransactions === 'function') {
+            updateGoalProgressFromTransactions();
+        }
     } catch (error) {
         console.error('Erro ao carregar transações:', error);
     }
@@ -430,6 +508,243 @@ function updateStats(filteredTransactions = transactions) {
     // Color balance based on positive/negative
     const balanceElement = document.getElementById('totalBalance');
     balanceElement.style.color = totalBalance >= 0 ? 'var(--success)' : 'var(--danger)';
+}
+
+// Reports Functions
+function initializeReports() {
+    // Set default date range to current year
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const startMonth = `${currentYear}-01`;
+    const endMonth = `${currentYear}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    
+    document.getElementById('reportStartMonth').value = startMonth;
+    document.getElementById('reportEndMonth').value = endMonth;
+}
+
+function generateReport() {
+    const startMonth = document.getElementById('reportStartMonth').value;
+    const endMonth = document.getElementById('reportEndMonth').value;
+    const reportType = document.getElementById('reportType').value;
+    
+    if (!startMonth || !endMonth) {
+        alert('Selecione o período do relatório');
+        return;
+    }
+    
+    // Filter transactions by date range
+    const filteredTransactions = transactions.filter(t => {
+        return t.month >= startMonth && t.month <= endMonth;
+    });
+    
+    const reportResults = document.getElementById('reportResults');
+    
+    switch (reportType) {
+        case 'summary':
+            generateSummaryReport(filteredTransactions, reportResults);
+            break;
+        case 'category':
+            generateCategoryReport(filteredTransactions, reportResults);
+            break;
+        case 'monthly':
+            generateMonthlyReport(filteredTransactions, reportResults);
+            break;
+        case 'goals':
+            generateGoalsReport(reportResults);
+            break;
+    }
+}
+
+function generateSummaryReport(transactions, container) {
+    const totalIncome = transactions.reduce((sum, t) => sum + (t.income || 0), 0);
+    const totalExpense = transactions.reduce((sum, t) => sum + (t.expense || 0), 0);
+    const balance = totalIncome - totalExpense;
+    
+    container.innerHTML = `
+        <h3>Resumo Geral</h3>
+        <div class="report-summary">
+            <div class="report-item">
+                <h4>Total de Receitas</h4>
+                <div class="value" style="color: var(--success)">R$ ${formatCurrency(totalIncome)}</div>
+            </div>
+            <div class="report-item">
+                <h4>Total de Gastos</h4>
+                <div class="value" style="color: var(--danger)">R$ ${formatCurrency(totalExpense)}</div>
+            </div>
+            <div class="report-item">
+                <h4>Saldo Final</h4>
+                <div class="value" style="color: ${balance >= 0 ? 'var(--success)' : 'var(--danger)'}">R$ ${formatCurrency(balance)}</div>
+            </div>
+            <div class="report-item">
+                <h4>Transações</h4>
+                <div class="value">${transactions.length}</div>
+            </div>
+        </div>
+    `;
+}
+
+function generateCategoryReport(transactions, container) {
+    const categoryData = {};
+    
+    transactions.forEach(t => {
+        const category = categories.find(c => c._id === t.category_id);
+        const categoryName = category ? category.name : 'Sem categoria';
+        
+        if (!categoryData[categoryName]) {
+            categoryData[categoryName] = { expense: 0, income: 0, count: 0 };
+        }
+        
+        categoryData[categoryName].expense += (t.expense || 0);
+        categoryData[categoryName].income += (t.income || 0);
+        categoryData[categoryName].count += 1;
+    });
+    
+    const sortedCategories = Object.entries(categoryData)
+        .sort(([,a], [,b]) => b.expense - a.expense);
+    
+    container.innerHTML = `
+        <h3>Relatório por Categoria</h3>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Categoria</th>
+                        <th>Gastos</th>
+                        <th>Receitas</th>
+                        <th>Saldo</th>
+                        <th>Transações</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${sortedCategories.map(([name, data]) => `
+                        <tr>
+                            <td>${name}</td>
+                            <td style="color: var(--danger)">R$ ${formatCurrency(data.expense)}</td>
+                            <td style="color: var(--success)">R$ ${formatCurrency(data.income)}</td>
+                            <td style="color: ${(data.income - data.expense) >= 0 ? 'var(--success)' : 'var(--danger)'}">
+                                R$ ${formatCurrency(data.income - data.expense)}
+                            </td>
+                            <td>${data.count}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        </div>
+    `;
+}
+
+function generateMonthlyReport(transactions, container) {
+    const monthlyData = {};
+    
+    transactions.forEach(t => {
+        if (!monthlyData[t.month]) {
+            monthlyData[t.month] = { expense: 0, income: 0, count: 0 };
+        }
+        
+        monthlyData[t.month].expense += (t.expense || 0);
+        monthlyData[t.month].income += (t.income || 0);
+        monthlyData[t.month].count += 1;
+    });
+    
+    const sortedMonths = Object.entries(monthlyData).sort(([a], [b]) => b.localeCompare(a));
+    
+    container.innerHTML = `
+        <h3>Evolução Mensal</h3>
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Mês</th>
+                        <th>Gastos</th>
+                        <th>Receitas</th>
+                        <th>Saldo</th>
+                        <th>Transações</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${sortedMonths.map(([month, data]) => `
+                        <tr>
+                            <td>${formatMonth(month)}</td>
+                            <td style="color: var(--danger)">R$ ${formatCurrency(data.expense)}</td>
+                            <td style="color: var(--success)">R$ ${formatCurrency(data.income)}</td>
+                            <td style="color: ${(data.income - data.expense) >= 0 ? 'var(--success)' : 'var(--danger)'}">
+                                R$ ${formatCurrency(data.income - data.expense)}
+                            </td>
+                            <td>${data.count}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        </div>
+    `;
+}
+
+function generateGoalsReport(container) {
+    if (typeof goals === 'undefined' || goals.length === 0) {
+        container.innerHTML = `
+            <h3>Relatório de Metas</h3>
+            <p>Nenhuma meta encontrada.</p>
+        `;
+        return;
+    }
+    
+    const activeGoals = goals.filter(g => g.status === 'active').length;
+    const completedGoals = goals.filter(g => g.status === 'completed').length;
+    const totalProgress = goals.reduce((sum, g) => sum + calculateProgress(g), 0) / goals.length;
+    
+    container.innerHTML = `
+        <h3>Relatório de Metas</h3>
+        <div class="report-summary">
+            <div class="report-item">
+                <h4>Metas Ativas</h4>
+                <div class="value">${activeGoals}</div>
+            </div>
+            <div class="report-item">
+                <h4>Metas Concluídas</h4>
+                <div class="value">${completedGoals}</div>
+            </div>
+            <div class="report-item">
+                <h4>Progresso Médio</h4>
+                <div class="value">${totalProgress.toFixed(1)}%</div>
+            </div>
+            <div class="report-item">
+                <h4>Total de Metas</h4>
+                <div class="value">${goals.length}</div>
+            </div>
+        </div>
+        
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Meta</th>
+                        <th>Tipo</th>
+                        <th>Progresso</th>
+                        <th>Status</th>
+                        <th>Data Alvo</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${goals.map(goal => `
+                        <tr>
+                            <td>${goal.title}</td>
+                            <td>${getGoalTypeLabel(goal.goal_type)}</td>
+                            <td>
+                                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                    <div style="flex: 1; background: var(--bg-secondary); height: 8px; border-radius: 4px;">
+                                        <div style="width: ${Math.min(calculateProgress(goal), 100)}%; height: 100%; background: var(--success); border-radius: 4px;"></div>
+                                    </div>
+                                    <span>${calculateProgress(goal).toFixed(1)}%</span>
+                                </div>
+                            </td>
+                            <td><span class="goal-status ${goal.status}">${getStatusLabel(goal.status)}</span></td>
+                            <td>${formatDate(goal.target_date)}</td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+        </div>
+    `;
 }
 
 // Export Functions
