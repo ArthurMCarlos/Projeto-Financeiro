@@ -20,7 +20,7 @@ async function initializeApp() {
     // Check authentication
     const token = localStorage.getItem('token');
     if (!token) {
-        window.location.href = '/login.html';
+        window.location.href = '/frontend/login.html';
         return;
     }
 
@@ -40,6 +40,9 @@ async function initializeApp() {
     
     // Initialize charts
     initializeCharts();
+    
+    // Initialize dashboard widgets
+    initializeDashboardWidgets();
     
     // Update overview
     updateOverview();
@@ -193,7 +196,7 @@ async function apiCall(endpoint, options = {}) {
         if (response.status === 401) {
             localStorage.removeItem('token');
             localStorage.removeItem('user');
-            window.location.href = '/login.html';
+            window.location.href = '/frontend/login.html';
             return;
         }
 
@@ -887,6 +890,7 @@ function openExpenseModal(expense = null) {
     const form = document.getElementById('expenseForm');
     
     form.reset();
+    document.getElementById('expenseId').value = ''; // LIMPAR EXPLICITAMENTE O CAMPO OCULTO
     
     if (expense) {
         document.getElementById('expenseModalTitle').textContent = 'Editar Despesa';
@@ -1872,6 +1876,317 @@ function closeAllModals() {
     document.querySelectorAll('.modal').forEach(modal => {
         modal.style.display = 'none';
     });
+}
+
+// Dashboard Widgets Personalizáveis
+let widgetsConfig = {
+    order: ['balance', 'income', 'expense', 'savings'],
+    sizes: {
+        balance: 'large',
+        income: 'medium', 
+        expense: 'medium',
+        savings: 'medium'
+    },
+    visible: {
+        balance: true,
+        income: true,
+        expense: true,
+        savings: true
+    },
+    showControls: false
+};
+
+// Initialize dashboard widgets
+function initializeDashboardWidgets() {
+    // Small delay to ensure DOM is fully ready
+    setTimeout(() => {
+        loadWidgetsConfig();
+        createWidgetControls();
+        applyWidgetsConfig();
+        initializeDragAndDrop();
+    }, 100);
+}
+
+// Load widgets configuration from localStorage
+function loadWidgetsConfig() {
+    const saved = localStorage.getItem('dashboard_widgets_config');
+    if (saved) {
+        try {
+            const config = JSON.parse(saved);
+            widgetsConfig = { ...widgetsConfig, ...config };
+        } catch (e) {
+            console.warn('Configuração de widgets inválida, usando padrão');
+        }
+    }
+}
+
+// Save widgets configuration to localStorage
+function saveWidgetsConfig() {
+    localStorage.setItem('dashboard_widgets_config', JSON.stringify(widgetsConfig));
+}
+
+// Create widget controls
+function createWidgetControls() {
+    const controlsContainer = document.createElement('div');
+    controlsContainer.className = 'widget-controls';
+    controlsContainer.innerHTML = `
+        <button id="toggleWidgetControls" class="btn-icon" title="Personalizar Dashboard">
+            ⚙️
+        </button>
+        <div id="widgetControlsPanel" class="widget-controls-panel" style="display: none;">
+            <h4>Personalizar Widgets</h4>
+            <div class="widget-config-list">
+                <div class="widget-config-item" data-widget="balance">
+                    <label>
+                        <input type="checkbox" checked> Saldo Total
+                        <select class="widget-size-select">
+                            <option value="small">Pequeno</option>
+                            <option value="medium" selected>Médio</option>
+                            <option value="large">Grande</option>
+                        </select>
+                    </label>
+                </div>
+                <div class="widget-config-item" data-widget="income">
+                    <label>
+                        <input type="checkbox" checked> Receitas do Mês
+                        <select class="widget-size-select">
+                            <option value="small">Pequeno</option>
+                            <option value="medium" selected>Médio</option>
+                            <option value="large">Grande</option>
+                        </select>
+                    </label>
+                </div>
+                <div class="widget-config-item" data-widget="expense">
+                    <label>
+                        <input type="checkbox" checked> Despesas do Mês
+                        <select class="widget-size-select">
+                            <option value="small">Pequeno</option>
+                            <option value="medium" selected>Médio</option>
+                            <option value="large">Grande</option>
+                        </select>
+                    </label>
+                </div>
+                <div class="widget-config-item" data-widget="savings">
+                    <label>
+                        <input type="checkbox" checked> Economia do Mês
+                        <select class="widget-size-select">
+                            <option value="small">Pequeno</option>
+                            <option value="medium" selected>Médio</option>
+                            <option value="large">Grande</option>
+                        </select>
+                    </label>
+                </div>
+            </div>
+            <div class="widget-controls-actions">
+                <button id="resetWidgets" class="btn-secondary">Resetar Layout</button>
+                <button id="saveWidgets" class="btn-primary">Salvar</button>
+            </div>
+        </div>
+    `;
+    
+    // Add to header
+    const headerRight = document.querySelector('.header-right');
+    headerRight.insertBefore(controlsContainer, headerRight.firstChild);
+    
+    // Add event listeners
+    document.getElementById('toggleWidgetControls').addEventListener('click', toggleWidgetControls);
+    
+    // Checkbox and size change handlers
+    controlsContainer.querySelectorAll('.widget-config-item input[type="checkbox"]').forEach(checkbox => {
+        checkbox.addEventListener('change', (e) => {
+            const widget = e.target.closest('.widget-config-item').dataset.widget;
+            widgetsConfig.visible[widget] = e.target.checked;
+            updateWidgetVisibility(widget, e.target.checked);
+        });
+    });
+    
+    controlsContainer.querySelectorAll('.widget-size-select').forEach(select => {
+        select.addEventListener('change', (e) => {
+            const widget = e.target.closest('.widget-config-item').dataset.widget;
+            widgetsConfig.sizes[widget] = e.target.value;
+            updateWidgetSize(widget, e.target.value);
+        });
+    });
+    
+    document.getElementById('resetWidgets').addEventListener('click', resetWidgetsLayout);
+    document.getElementById('saveWidgets').addEventListener('click', () => {
+        saveWidgetsConfig();
+        document.getElementById('widgetControlsPanel').style.display = 'none';
+    });
+}
+
+// Toggle widget controls panel
+function toggleWidgetControls() {
+    const panel = document.getElementById('widgetControlsPanel');
+    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+}
+
+// Apply widgets configuration to dashboard
+function applyWidgetsConfig() {
+    updateWidgetVisibility();
+    updateWidgetSizes();
+    reorderWidgets();
+}
+
+// Update widget visibility
+function updateWidgetVisibility(widget = null, visible = null) {
+    const statsGrid = document.querySelector('.stats-grid');
+    if (!statsGrid) return;
+    
+    if (widget && visible !== null) {
+        const widgetElement = statsGrid.querySelector(`[data-widget-id="${widget}"]`);
+        if (widgetElement) {
+            widgetElement.style.display = visible ? 'block' : 'none';
+        }
+    } else {
+        // Update all widgets
+        Object.keys(widgetsConfig.visible).forEach(w => {
+            const widgetElement = statsGrid.querySelector(`[data-widget-id="${w}"]`);
+            if (widgetElement) {
+                widgetElement.style.display = widgetsConfig.visible[w] ? 'block' : 'none';
+            }
+        });
+    }
+}
+
+// Update widget sizes
+function updateWidgetSize(widget = null, size = null) {
+    const statsGrid = document.querySelector('.stats-grid');
+    if (!statsGrid) return;
+    
+    if (widget && size) {
+        const widgetElement = statsGrid.querySelector(`[data-widget-id="${widget}"]`);
+        if (widgetElement) {
+            widgetElement.className = `stat-card widget-${size}`;
+        }
+    } else {
+        // Update all widgets
+        Object.keys(widgetsConfig.sizes).forEach(w => {
+            const widgetElement = statsGrid.querySelector(`[data-widget-id="${w}"]`);
+            if (widgetElement) {
+                widgetElement.className = `stat-card widget-${widgetsConfig.sizes[w]}`;
+            }
+        });
+    }
+}
+
+// Update all widget sizes
+function updateWidgetSizes() {
+    Object.keys(widgetsConfig.sizes).forEach(widget => {
+        updateWidgetSize(widget, widgetsConfig.sizes[widget]);
+    });
+}
+
+// Reorder widgets based on configuration
+function reorderWidgets() {
+    const statsGrid = document.querySelector('.stats-grid');
+    if (!statsGrid) return;
+    
+    const widgets = Array.from(statsGrid.children);
+    widgets.forEach(widget => widget.remove());
+    
+    widgetsConfig.order.forEach(widgetId => {
+        if (widgetsConfig.visible[widgetId]) {
+            const widget = document.querySelector(`[data-widget-id="${widgetId}"]`);
+            if (widget) {
+                statsGrid.appendChild(widget);
+            }
+        }
+    });
+}
+
+// Initialize drag and drop
+function initializeDragAndDrop() {
+    const statsGrid = document.querySelector('.stats-grid');
+    if (!statsGrid) return;
+    
+    // Add drag indicators and handlers to stat cards
+    const statCards = statsGrid.querySelectorAll('.stat-card');
+    statCards.forEach(card => {
+        makeDraggable(card);
+    });
+}
+
+// Make element draggable
+function makeDraggable(element) {
+    element.draggable = true;
+    
+    element.addEventListener('dragstart', (e) => {
+        e.dataTransfer.setData('text/plain', element.dataset.widgetId);
+        element.classList.add('dragging');
+    });
+    
+    element.addEventListener('dragend', () => {
+        element.classList.remove('dragging');
+        saveWidgetsConfig();
+    });
+    
+    element.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        const draggedElement = document.querySelector('.dragging');
+        if (draggedElement !== element) {
+            const rect = element.getBoundingClientRect();
+            const midpoint = rect.top + rect.height / 2;
+            
+            if (e.clientY < midpoint) {
+                element.parentNode.insertBefore(draggedElement, element);
+            } else {
+                element.parentNode.insertBefore(draggedElement, element.nextSibling);
+            }
+        }
+    });
+    
+    element.addEventListener('drop', (e) => {
+        e.preventDefault();
+        updateWidgetsOrder();
+    });
+    
+    // Add drag indicator
+    if (!element.querySelector('.drag-handle')) {
+        const handle = document.createElement('div');
+        handle.className = 'drag-handle';
+        handle.innerHTML = '⋮⋮';
+        handle.title = 'Arrastar para reorganizar';
+        element.insertBefore(handle, element.firstChild);
+    }
+}
+
+// Reset widgets to default layout
+function resetWidgetsLayout() {
+    widgetsConfig = {
+        order: ['balance', 'income', 'expense', 'savings'],
+        sizes: {
+            balance: 'large',
+            income: 'medium', 
+            expense: 'medium',
+            savings: 'medium'
+        },
+        visible: {
+            balance: true,
+            income: true,
+            expense: true,
+            savings: true
+        },
+        showControls: false
+    };
+    
+    saveWidgetsConfig();
+    applyWidgetsConfig();
+    
+    // Update controls UI
+    document.querySelectorAll('.widget-config-item').forEach(item => {
+        const widget = item.dataset.widget;
+        item.querySelector('input[type="checkbox"]').checked = widgetsConfig.visible[widget];
+        item.querySelector('.widget-size-select').value = widgetsConfig.sizes[widget];
+    });
+}
+
+// Update widgets order after drag and drop
+function updateWidgetsOrder() {
+    const statsGrid = document.querySelector('.stats-grid');
+    const widgets = Array.from(statsGrid.children);
+    widgetsConfig.order = widgets.map(widget => widget.dataset.widgetId);
+    saveWidgetsConfig();
 }
 
 // Auth Functions
