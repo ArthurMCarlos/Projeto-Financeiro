@@ -1873,6 +1873,31 @@ function createMonthlyTrendChart() {
     });
 }
 
+// Função para gerar cores dinâmicas e únicas
+function generateDynamicColors(count) {
+    const baseColors = [
+        '#4f46e5', '#10b981', '#f59e0b', '#ef4444', // Azul, Verde, Amarelo, Vermelho
+        '#8b5cf6', '#06b6d4', '#ec4899', '#14b8a6', // Roxo, Ciano, Rosa, Verde-água
+        '#f97316', '#84cc16', '#6366f1', '#0ea5e9', // Laranja, Lima, Índigo, Azul claro
+        '#db2777', '#059669', '#d97706', '#dc2626', // Rosa escuro, Verde escuro, Âmbar, Vermelho escuro
+        '#7c3aed', '#0891b2', '#be185d', '#16a34a'  // Violeta, Azul-petróleo, Magenta, Verde medio
+    ];
+    
+    const colors = [];
+    for (let i = 0; i < count; i++) {
+        if (i < baseColors.length) {
+            colors.push(baseColors[i]);
+        } else {
+            // Gerar cores adicionais se necessário
+            const hue = (i * 137.508) % 360; // Golden angle approximation
+            const saturation = 70 + (i % 3) * 10; // Varia saturação
+            const lightness = 50 + (i % 4) * 8;   // Varia luminosidade
+            colors.push(`hsl(${hue}, ${saturation}%, ${lightness}%)`);
+        }
+    }
+    return colors;
+}
+
 function createCategoryPieChart() {
     const ctx = document.getElementById('categoryPieChart');
     if (!ctx) return;
@@ -1883,10 +1908,7 @@ function createCategoryPieChart() {
             labels: [],
             datasets: [{
                 data: [],
-                backgroundColor: [
-                    '#4f46e5', '#10b981', '#f59e0b', '#ef4444',
-                    '#8b5cf6', '#06b6d4', '#ec4899', '#14b8a6'
-                ]
+                backgroundColor: [] // Será preenchido dinamicamente
             }]
         },
         options: {
@@ -1894,7 +1916,18 @@ function createCategoryPieChart() {
             maintainAspectRatio: false,
             plugins: {
                 legend: {
-                    position: 'right'
+                    position: 'right',
+                    labels: {
+                        usePointStyle: true,
+                        pointStyle: 'circle'
+                    }
+                },
+                tooltip: {
+                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                    titleColor: '#fff',
+                    bodyColor: '#fff',
+                    borderColor: 'rgba(255, 255, 255, 0.1)',
+                    borderWidth: 1
                 }
             }
         }
@@ -1942,15 +1975,21 @@ function createExpenseDistributionChart() {
             labels: [],
             datasets: [{
                 data: [],
-                backgroundColor: [
-                    '#4f46e5', '#10b981', '#f59e0b', '#ef4444',
-                    '#8b5cf6', '#06b6d4', '#ec4899', '#14b8a6'
-                ]
+                backgroundColor: [] // Será preenchido dinamicamente
             }]
         },
         options: {
             responsive: true,
-            maintainAspectRatio: false
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'right',
+                    labels: {
+                        usePointStyle: true,
+                        pointStyle: 'circle'
+                    }
+                }
+            }
         }
     });
 }
@@ -2010,8 +2049,18 @@ function updateCategoryPieChart() {
         categoryData[categoryName] = (categoryData[categoryName] || 0) + (t.expense || 0);
     });
     
-    // Atualizar cores baseadas no status do orçamento
-    const backgroundColors = Object.keys(categoryData).map(categoryName => {
+    // ✅ NOVA LÓGICA: Gerar cores dinâmicas e únicas para cada categoria
+    const categoryNames = Object.keys(categoryData);
+    const backgroundColors = generateDynamicColors(categoryNames.length);
+    
+    // Mapear cada categoria para sua cor única
+    const categoryColors = {};
+    categoryNames.forEach((categoryName, index) => {
+        categoryColors[categoryName] = backgroundColors[index];
+    });
+    
+    // ✅ NOVA: Adicionar indicadores visuais de status via bordas
+    const borderColors = categoryNames.map(categoryName => {
         const category = categories.find(c => c.name === categoryName);
         if (!category) return '#6b7280';
         
@@ -2024,16 +2073,18 @@ function updateCategoryPieChart() {
         
         const percentage = (spent / budget.amount) * 100;
         
-        // Cores baseadas no status do orçamento
-        if (percentage >= 100) return '#ef4444'; // Vermelho - excedido
-        if (percentage >= 90) return '#f59e0b'; // Amarelo - crítico
-        if (percentage >= 70) return '#eab308'; // Amarelo claro - atenção
-        return '#10b981'; // Verde - OK
+        // Cores de borda baseadas no status do orçamento
+        if (percentage >= 100) return '#dc2626'; // Vermelho escuro - excedido
+        if (percentage >= 90) return '#d97706'; // Âmbar - crítico
+        if (percentage >= 70) return '#eab308'; // Amarelo - atenção
+        return '#059669'; // Verde escuro - OK
     });
     
     charts.categoryPie.data.labels = Object.keys(categoryData);
     charts.categoryPie.data.datasets[0].data = Object.values(categoryData);
     charts.categoryPie.data.datasets[0].backgroundColor = backgroundColors;
+    charts.categoryPie.data.datasets[0].borderColor = borderColors;
+    charts.categoryPie.data.datasets[0].borderWidth = 2;
     
     // Adicionar tooltips com informações de orçamento
     charts.categoryPie.options.plugins.tooltip = {
@@ -2067,6 +2118,9 @@ function updateCategoryPieChart() {
         }
     };
     
+    // ✅ ATUALIZAR O GRÁFICO com as novas cores
+    charts.categoryPie.update();
+
     charts.categoryPie.update();
 }
 
@@ -2112,8 +2166,13 @@ function updateExpenseDistributionChart() {
         categoryData[categoryName] = (categoryData[categoryName] || 0) + (t.expense || 0);
     });
     
+    // ✅ NOVA LÓGICA: Gerar cores dinâmicas para o gráfico de distribuição
+    const categoryNames = Object.keys(categoryData);
+    const backgroundColors = generateDynamicColors(categoryNames.length);
+    
     charts.expenseDistribution.data.labels = Object.keys(categoryData);
     charts.expenseDistribution.data.datasets[0].data = Object.values(categoryData);
+    charts.expenseDistribution.data.datasets[0].backgroundColor = backgroundColors;
     charts.expenseDistribution.update();
 }
 
