@@ -40,9 +40,6 @@ async function initializeApp() {
     
     // Initialize charts
     initializeCharts();
-    
-    // Update overview
-    updateOverview();
 }
 
 function initializeTheme() {
@@ -222,9 +219,56 @@ async function loadAllData() {
             loadAccounts(),
             loadGoals()
         ]);
+        
+        // FORÇAR ATUALIZAÇÃO DE TODAS AS LISTAS APÓS CARREGAR TODOS OS DADOS
+        await updateAllDisplays();
     } catch (error) {
         console.error('Erro ao carregar dados:', error);
     }
+}
+
+async function updateAllDisplays() {
+    // Aguardar um pequeno delay para garantir que todos os dados foram processados
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    // Diagnóstico - verificar se os dados foram carregados
+    console.log('🔄 Atualizando displays...', {
+        transactions: transactions.length,
+        categories: categories.length,
+        accounts: accounts.length,
+        budgets: budgets.length
+    });
+    
+    // Atualizar todas as displays na ordem correta
+    displayExpenses();
+    displayIncomes();
+    displayBudgets();
+    displayAccounts();
+    displayGoals();
+    
+    // Atualizar todos os seletores e resumos
+    updateCategorySelects();
+    updateAccountSelects();
+    updateIncomeAccountSelects();
+    updateOverviewAccountSelect();
+    updateAccountBalances();
+    updateAccountSummary();
+    updateOverviewAccountSummary();
+    updateOverview();
+    
+    console.log('✅ Displays atualizados com sucesso');
+}
+
+// Função de debug para verificar se os dados estão sendo carregados
+function debugDataLoading() {
+    console.log('🔍 Estado dos dados:', {
+        'Transações': transactions.length,
+        'Categorias': categories.length,
+        'Contas': accounts.length,
+        'Orçamentos': budgets.length,
+        'Receitas': incomes.length,
+        'Metas': goals.length
+    });
 }
 
 async function loadCategories() {
@@ -241,7 +285,7 @@ async function loadTransactions() {
     try {
         const data = await apiCall('/api/transactions');
         transactions = data.transactions || [];
-        displayExpenses();
+        // Remover displayExpenses() aqui - será chamado após todos os dados carregarem
     } catch (error) {
         console.error('Erro ao carregar transações:', error);
     }
@@ -841,6 +885,13 @@ async function deleteIncome(incomeId) {
 function displayExpenses(filtered = transactions) {
     const tbody = document.querySelector('#expensesTable tbody');
     
+    // Aguardar um pouco se os dados ainda não estiverem carregados
+    if (categories.length === 0 || accounts.length === 0) {
+        console.log('⏳ Aguardando carregamento de dados para exibir despesas...');
+        setTimeout(() => displayExpenses(filtered), 200);
+        return;
+    }
+    
     tbody.innerHTML = filtered.map(transaction => {
         const category = categories.find(c => c._id === transaction.category_id);
         const account = accounts.find(a => a._id === transaction.account_id);
@@ -1133,12 +1184,8 @@ async function refreshAllData() {
             loadGoals()
         ]);
         
-        // Atualizar displays
-        displayExpenses();
-        displayBudgets();
-        updateOverview();
-        updateAccountBalances();
-        updateOverviewCharts();
+        // Usar a função centralizada de atualização
+        await updateAllDisplays();
         
         showToast('Dados atualizados!', 'success', 2000);
     } catch (error) {
@@ -1150,6 +1197,13 @@ async function refreshAllData() {
 // Budget Functions
 function displayBudgets(filtered = budgets) {
     const container = document.getElementById('budgetsList');
+    
+    // Aguardar um pouco se os dados ainda não estiverem carregados
+    if (categories.length === 0 || transactions.length === 0) {
+        console.log('⏳ Aguardando carregamento de dados para exibir orçamentos...');
+        setTimeout(() => displayBudgets(filtered), 200);
+        return;
+    }
     
     if (filtered.length === 0) {
         container.innerHTML = '<p style="text-align: center; color: var(--text-secondary);">Nenhum orçamento encontrado</p>';
