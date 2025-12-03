@@ -9,7 +9,7 @@ let goals = [];
 let charts = {};
 
 // API Base URL
-const API_BASE = window.location.origin;
+const API_BASE = "https://projeto-financeiro-c8sb.onrender.com";
 
 // Initialize app
 document.addEventListener('DOMContentLoaded', function() {
@@ -20,7 +20,7 @@ async function initializeApp() {
     // Check authentication
     const token = localStorage.getItem('token');
     if (!token) {
-        window.location.href = '/login.html';
+        window.location.href = 'login.html';
         return;
     }
 
@@ -99,7 +99,9 @@ function initializeEventListeners() {
     document.getElementById('expenseForm').addEventListener('submit', saveExpense);
     document.getElementById('expenseMonthFilter').addEventListener('change', filterExpenses);
     document.getElementById('expenseCategoryFilter').addEventListener('change', filterExpenses);
+    document.getElementById('expenseAccountFilter').addEventListener('change', filterExpenses);
     document.getElementById('expenseSearchFilter').addEventListener('input', filterExpenses);
+    document.getElementById('clearExpenseFilters').addEventListener('click', clearExpenseFilters);
 
     // Budget events
     document.getElementById('addBudgetBtn').addEventListener('click', () => openBudgetModal());
@@ -491,7 +493,7 @@ function updateCategorySelects() {
 }
 
 function updateAccountSelects() {
-    const selects = ['incomeAccount', 'expenseAccount', 'incomeAccountFilter'];
+    const selects = ['incomeAccount', 'expenseAccount', 'incomeAccountFilter', 'expenseAccountFilter'];
     
     selects.forEach(selectId => {
         const select = document.getElementById(selectId);
@@ -921,16 +923,36 @@ function displayExpenses(filtered = transactions) {
 function filterExpenses() {
     const monthFilter = document.getElementById('expenseMonthFilter').value;
     const categoryFilter = document.getElementById('expenseCategoryFilter').value;
+    const accountFilter = document.getElementById('expenseAccountFilter').value;
     const searchFilter = document.getElementById('expenseSearchFilter').value.toLowerCase();
     
     let filtered = transactions.filter(transaction => {
         const matchesMonth = !monthFilter || transaction.month === monthFilter;
         const matchesCategory = !categoryFilter || transaction.category_id === categoryFilter;
+        const matchesAccount = !accountFilter || transaction.account_id === accountFilter;
         const matchesSearch = !searchFilter || transaction.reason.toLowerCase().includes(searchFilter);
-        return matchesMonth && matchesCategory && matchesSearch;
+        return matchesMonth && matchesCategory && matchesAccount && matchesSearch;
     });
     
     displayExpenses(filtered);
+    updateExpenseFilterCount(filtered.length, transactions.length);
+}
+
+function clearExpenseFilters() {
+    document.getElementById('expenseMonthFilter').value = '';
+    document.getElementById('expenseCategoryFilter').value = '';
+    document.getElementById('expenseAccountFilter').value = '';
+    document.getElementById('expenseSearchFilter').value = '';
+    filterExpenses();
+}
+
+function updateExpenseFilterCount(filtered, total) {
+    const countElement = document.getElementById('expenseFilterCount');
+    if (filtered === total) {
+        countElement.textContent = `${total} despesas`;
+    } else {
+        countElement.textContent = `${filtered} de ${total} despesas`;
+    }
 }
 
 function openExpenseModal(expense = null) {
