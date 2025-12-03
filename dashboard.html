@@ -243,11 +243,30 @@
                         <button id="addExpenseBtn" class="btn-primary">+ Nova Despesa</button>
                     </div>
                     <div class="filters">
-                        <input type="month" id="expenseMonthFilter" class="input">
-                        <select id="expenseCategoryFilter" class="input">
-                            <option value="">Todas as categorias</option>
-                        </select>
-                        <input type="text" id="expenseSearchFilter" placeholder="Buscar..." class="input">
+                        <div class="filter-group">
+                            <label for="expenseMonthFilter">Mês:</label>
+                            <input type="month" id="expenseMonthFilter" class="input">
+                        </div>
+                        <div class="filter-group">
+                            <label for="expenseCategoryFilter">Categoria:</label>
+                            <select id="expenseCategoryFilter" class="input">
+                                <option value="">Todas as categorias</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label for="expenseAccountFilter">Conta:</label>
+                            <select id="expenseAccountFilter" class="input">
+                                <option value="">Todas as contas</option>
+                            </select>
+                        </div>
+                        <div class="filter-group filter-search">
+                            <label for="expenseSearchFilter">Buscar:</label>
+                            <input type="text" id="expenseSearchFilter" placeholder="Buscar por motivo..." class="input">
+                        </div>
+                        <div class="filter-actions">
+                            <button id="clearExpenseFilters" class="btn-secondary btn-sm">Limpar Filtros</button>
+                            <span id="expenseFilterCount" class="filter-count"></span>
+                        </div>
                     </div>
                     <div class="table-container">
                         <table id="expensesTable">
