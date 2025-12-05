@@ -2287,3 +2287,378 @@ function logout() {
     localStorage.removeItem('user');
     window.location.href = '/login.html';
 }
+
+// Credit Card Reset Functions
+function toggleCreditCardFields() {
+    const accountType = document.getElementById('accountType').value;
+    const creditCardFields = document.getElementById('creditCardFields');
+    const creditCardInfo = document.getElementById('creditCardInfo');
+    
+    if (accountType === 'cartao') {
+        creditCardFields.style.display = 'block';
+        
+        // Mostrar informações se for edição
+        const accountId = document.getElementById('accountId').value;
+        if (accountId) {
+            creditCardInfo.style.display = 'block';
+        }
+    } else {
+        creditCardFields.style.display = 'none';
+        creditCardInfo.style.display = 'none';
+    }
+}
+
+async function configureCreditCardReset(accountId) {
+    try {
+        const data = {
+            credit_limit: parseFloat(document.getElementById('creditLimit').value),
+            billing_cycle_day: parseInt(document.getElementById('billingCycleDay').value),
+            reset_enabled: document.getElementById('resetEnabled').checked
+        };
+        
+        const result = await apiCall(`/api/credit-cards/${accountId}/reset-config`, {
+            method: 'POST',
+            body: JSON.stringify(data)
+        });
+        
+        showToast('Configuração de reset atualizada com sucesso!', 'success');
+        
+        // Atualizar informações exibidas
+        updateCreditCardDisplay(data);
+        
+        // Recarregar contas para refletir mudanças
+        await loadAccounts();
+        
+    } catch (error) {
+        console.error('Erro ao configurar reset:', error);
+        showToast('Erro ao configurar reset: ' + error.message, 'error');
+    }
+}
+
+function updateCreditCardDisplay(data) {
+    const creditLimit = parseFloat(data.credit_limit) || 0;
+    const currentBalance = parseFloat(document.getElementById('accountBalance').value) || 0;
+    const creditUsed = creditLimit - currentBalance;
+    
+    document.getElementById('displayCreditLimit').textContent = `R$ ${formatCurrency(creditLimit)}`;
+    document.getElementById('displayCreditUsed').textContent = `R$ ${formatCurrency(creditUsed)}`;
+    document.getElementById('displayCreditAvailable').textContent = `R$ ${formatCurrency(currentBalance)}`;
+    
+    // Calcular próximo reset
+    if (data.reset_enabled && data.billing_cycle_day) {
+        const nextReset = calculateNextResetDate(data.billing_cycle_day);
+        document.getElementById('displayNextReset').textContent = nextReset;
+    } else {
+        document.getElementById('displayNextReset').textContent = 'Desabilitado';
+    }
+    
+    // Atualizar barra de utilização
+    updateCreditUtilizationBar(creditUsed, creditLimit);
+}
+
+function calculateNextResetDate(billingDay) {
+    const now = new Date();
+    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const adjustedDay = Math.min(billingDay, lastDay);
+    
+    let nextReset = new Date(now.getFullYear(), now.getMonth(), adjustedDay);
+    
+    if (now.getDate() > adjustedDay) {
+        // Próximo mês
+        nextReset = new Date(now.getFullYear(), now.getMonth() + 1, adjustedDay);
+    }
+    
+    return nextReset.toLocaleDateString('pt-BR');
+}
+
+function updateCreditUtilizationBar(used, limit) {
+    const utilization = (used / limit * 100) || 0;
+    const bar = document.querySelector('.credit-utilization-fill');
+    const percentage = document.querySelector('.utilization-percentage');
+    
+    if (bar && percentage) {
+        bar.style.width = `${utilization}%`;
+        percentage.textContent = `${utilization.toFixed(1)}% utilizado`;
+        
+        // Cor baseada na utilização
+        bar.className = 'credit-utilization-fill';
+        if (utilization >= 80) {
+            bar.classList.add('utilization-high');
+        } else if (utilization >= 60) {
+            bar.classList.add('utilization-medium');
+        } else {
+            bar.classList.add('utilization-low');
+        }
+    }
+}
+
+async function manualResetCreditCard(accountId) {
+    if (!confirm('Tem certeza que deseja executar um reset manual do cartão? Esta ação não pode ser desfeita.')) {
+        return;
+    }
+    
+    try {
+        const result = await apiCall(`/api/credit-cards/${accountId}/manual-reset`, {
+            method: 'POST'
+        });
+        
+        showToast('Reset manual executado com sucesso!', 'success');
+        
+        // Recarregar dados
+        await loadAccounts();
+        updateOverview();
+        
+    } catch (error) {
+        console.error('Erro no reset manual:', error);
+        showToast('Erro no reset manual: ' + error.message, 'error');
+    }
+}
+
+async function showCreditCardHistory(accountId) {
+    try {
+        const result = await apiCall(`/api/credit-cards/${accountId}/reset-history`);
+        
+        const modal = createHistoryModal(result);
+        document.body.appendChild(modal);
+        
+    } catch (error) {
+        console.error('Erro ao carregar histórico:', error);
+        showToast('Erro ao carregar histórico: ' + error.message, 'error');
+    }
+}
+
+function createHistoryModal(data) {
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.style.display = 'block';
+    
+    modal.innerHTML = `
+        <div class="modal-content">
+            <span class="close" onclick="this.parentElement.parentElement.remove()">&times;</span>
+            <h2>📋 Histórico de Reset - ${data.current_balance !== undefined ? 'Cartão de Crédito' : 'Conta'}</h2>
+            
+            <div class="credit-card-info">
+                <div class="info-grid">
+                    <div class="info-item">
+                        <div class="info-label">Limite</div>
+                        <div class="info-value">R$ ${formatCurrency(data.credit_limit)}</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Saldo Atual</div>
+                        <div class="info-value">R$ ${formatCurrency(data.current_balance)}</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Utilizado</div>
+                        <div class="info-value">R$ ${formatCurrency(data.credit_utilized)}</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Reset Automático</div>
+                        <div class="info-value">
+                            <span class="reset-status-badge ${data.reset_enabled ? 'reset-status-enabled' : 'reset-status-disabled'}">
+                                ${data.reset_enabled ? 'Ativado' : 'Desativado'}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            ${data.next_reset_date ? `
+                <div class="next-reset-info">
+                    <h5>📅 Próximo Reset</h5>
+                    <div>${new Date(data.next_reset_date).toLocaleDateString('pt-BR')}</div>
+                    <div class="days-until-reset">
+                        ${getDaysUntilReset(data.next_reset_date)} dias restantes
+                    </div>
+                </div>
+            ` : ''}
+            
+            <div class="reset-history">
+                <h5>🔄 Histórico de Resets</h5>
+                ${data.reset_history && data.reset_history.length > 0 ? 
+                    data.reset_history.slice().reverse().map(reset => `
+                        <div class="reset-history-item">
+                            <div class="reset-history-date">
+                                ${new Date(reset.date).toLocaleDateString('pt-BR')} às ${new Date(reset.date).toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})}
+                            </div>
+                            <div class="reset-history-details">
+                                <div class="reset-history-balance">
+                                    R$ ${formatCurrency(reset.previous_balance)} → R$ ${formatCurrency(reset.new_balance)}
+                                </div>
+                                <div style="font-size: 0.875rem; color: var(--text-secondary);">${reset.reason}</div>
+                            </div>
+                        </div>
+                    `).join('') :
+                    '<p style="text-align: center; color: var(--text-secondary); padding: 2rem;">Nenhum reset encontrado</p>'
+                }
+            </div>
+            
+            <div class="form-actions" style="margin-top: 2rem;">
+                <button type="button" class="btn-secondary" onclick="this.parentElement.parentElement.parentElement.remove()">Fechar</button>
+            </div>
+        </div>
+    `;
+    
+    return modal;
+}
+
+function getDaysUntilReset(nextResetDate) {
+    const now = new Date();
+    const resetDate = new Date(nextResetDate);
+    const diffTime = resetDate - now;
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return Math.max(0, diffDays);
+}
+
+function updateAccountDisplayWithCreditCardInfo(account) {
+    if (account.type === 'cartao') {
+        const accountCard = document.querySelector(`[data-account-id="${account._id}"]`);
+        if (!accountCard) return;
+        
+        // Adicionar badge de status do reset
+        const statusBadge = account.reset_enabled ? 
+            '<span class="reset-status-badge reset-status-enabled">Auto</span>' :
+            '<span class="reset-status-badge reset-status-disabled">Manual</span>';
+        
+        // Adicionar informações de crédito
+        const creditInfo = `
+            <div class="credit-card-info">
+                <div class="info-grid">
+                    <div class="info-item">
+                        <div class="info-label">Limite</div>
+                        <div class="info-value">R$ ${formatCurrency(account.credit_limit || 0)}</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Utilizado</div>
+                        <div class="info-value">R$ ${formatCurrency((account.credit_limit || 0) - (account.balance || 0))}</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Disponível</div>
+                        <div class="info-value">R$ ${formatCurrency(account.balance || 0)}</div>
+                    </div>
+                    <div class="info-item">
+                        <div class="info-label">Status</div>
+                        <div class="info-value">${statusBadge}</div>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        // Inserir informações após o header da conta
+        const accountHeader = accountCard.querySelector('.account-header');
+        if (accountHeader) {
+            // Remover informações anteriores se existirem
+            const existingInfo = accountCard.querySelector('.credit-card-info');
+            if (existingInfo) {
+                existingInfo.remove();
+            }
+            
+            // Adicionar novas informações
+            accountHeader.insertAdjacentHTML('afterend', creditInfo);
+            
+            // Adicionar botões de ação
+            const actionsDiv = accountCard.querySelector('.account-actions');
+            if (actionsDiv) {
+                actionsDiv.insertAdjacentHTML('beforebegin', `
+                    <div class="reset-actions">
+                        <button onclick="configureCreditCardReset('${account._id}')" class="btn-secondary btn-sm">
+                            ⚙️ Configurar
+                        </button>
+                        <button onclick="manualResetCreditCard('${account._id}')" class="btn-warning btn-sm">
+                            🔄 Reset
+                        </button>
+                        <button onclick="showCreditCardHistory('${account._id}')" class="btn-secondary btn-sm">
+                            📋 Histórico
+                        </button>
+                    </div>
+                `);
+            }
+        }
+    }
+}
+
+// Override functions to include credit card features
+const originalSaveAccount = saveAccount;
+saveAccount = async function(event) {
+    event.preventDefault();
+    
+    const accountId = document.getElementById('accountId').value;
+    const accountData = {
+        name: document.getElementById('accountName').value,
+        type: document.getElementById('accountType').value,
+        balance: parseFloat(document.getElementById('accountBalance').value)
+    };
+    
+    // Adicionar campos específicos do cartão
+    if (accountData.type === 'cartao') {
+        accountData.credit_limit = parseFloat(document.getElementById('creditLimit').value) || 0;
+        accountData.billing_cycle_day = parseInt(document.getElementById('billingCycleDay').value) || 1;
+        accountData.reset_enabled = document.getElementById('resetEnabled').checked;
+    }
+    
+    try {
+        if (accountId) {
+            await apiCall(`/api/accounts/${accountId}`, {
+                method: 'PUT',
+                body: JSON.stringify(accountData)
+            });
+        } else {
+            await apiCall('/api/accounts', {
+                method: 'POST',
+                body: JSON.stringify(accountData)
+            });
+        }
+        
+        closeAccountModal();
+        await loadAccounts();
+        updateOverview();
+        
+        // Se for cartão de crédito, configurar reset automático
+        if (accountData.type === 'cartao' && !accountId) {
+            await configureCreditCardReset(accountId);
+        }
+        
+    } catch (error) {
+        console.error('Erro ao salvar conta:', error);
+    }
+};
+
+// Override displayAccounts to include credit card info
+const originalDisplayAccounts = displayAccounts;
+displayAccounts = function() {
+    originalDisplayAccounts();
+    
+    // Adicionar informações específicas para cartões de crédito
+    accounts.forEach(account => {
+        if (account.type === 'cartao') {
+            updateAccountDisplayWithCreditCardInfo(account);
+        }
+    });
+};
+
+// Override openAccountModal to populate credit card fields
+const originalOpenAccountModal = openAccountModal;
+openAccountModal = function(account = null) {
+    originalOpenAccountModal(account);
+    
+    if (account) {
+        const creditCardFields = document.getElementById('creditCardFields');
+        const creditCardInfo = document.getElementById('creditCardInfo');
+        
+        if (account.type === 'cartao') {
+            creditCardFields.style.display = 'block';
+            creditCardInfo.style.display = 'block';
+            
+            // Preencher campos de cartão
+            document.getElementById('creditLimit').value = account.credit_limit || '';
+            document.getElementById('billingCycleDay').value = account.billing_cycle_day || 1;
+            document.getElementById('resetEnabled').checked = account.reset_enabled || false;
+            
+            // Atualizar display
+            updateCreditCardDisplay({
+                credit_limit: account.credit_limit || 0,
+                billing_cycle_day: account.billing_cycle_day || 1,
+                reset_enabled: account.reset_enabled || false
+            });
+        }
+    }
+};
