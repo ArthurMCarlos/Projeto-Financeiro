@@ -32,12 +32,18 @@ async function initializeApp() {
     // Initialize theme
     initializeTheme();
 
+    // Initialize closing day select
+    initializeClosingDaySelect();
+
     // Load all data
     await loadAllData();
-    
+
+    // Check credit card resets
+    await checkCreditCardResets();
+
     // Initialize event listeners
     initializeEventListeners();
-    
+
     // Initialize charts
     initializeCharts();
 }
@@ -58,6 +64,161 @@ function initializeTheme() {
         themeToggle.textContent = newTheme === 'dark' ? '☀️' : '🌙';
         updateChartsTheme();
     });
+}
+
+// =====================================================
+// FUNÇÕES DE CARTÃO DE CRÉDITO
+// =====================================================
+
+// Inicializa o select de dias de fechamento (1-31)
+function initializeClosingDaySelect() {
+    const select = document.getElementById('accountClosingDay');
+    if (!select) return;
+
+    select.innerHTML = '';
+    for (let day = 1; day <= 31; day++) {
+        const option = document.createElement('option');
+        option.value = day;
+        option.textContent = `Dia ${day}`;
+        select.appendChild(option);
+    }
+}
+
+// Toggle campos de cartão de crédito no modal
+function toggleCreditCardFields() {
+    const accountType = document.getElementById('accountType').value;
+    const creditCardFields = document.getElementById('creditCardFields');
+    const balanceField = document.getElementById('balanceField');
+
+    if (accountType === 'cartao') {
+        creditCardFields.style.display = 'block';
+        balanceField.style.display = 'none';
+    } else {
+        creditCardFields.style.display = 'none';
+        balanceField.style.display = 'block';
+    }
+}
+
+// Verifica e executa reset automático de cartões
+async function checkCreditCardResets() {
+    try {
+        const response = await apiCall('/api/accounts/check-resets', {
+            method: 'POST'
+        });
+
+        if (response && response.reset_cards && response.reset_cards.length > 0) {
+            showCreditCardResetNotification(response.reset_cards);
+            // Recarrega as contas para atualizar os saldos
+            await loadAccounts();
+        }
+    } catch (error) {
+        console.error('Erro ao verificar reset de cartões:', error);
+    }
+}
+
+// Mostra notificação de reset de cartão
+function showCreditCardResetNotification(resetCards) {
+    const notification = document.getElementById('creditCardResetNotification');
+    if (!notification) return;
+
+    const cardNames = resetCards.map(card => card.name).join(', ');
+    const text = resetCards.length === 1
+        ? `O limite do cartão "${cardNames}" foi restaurado automaticamente!`
+        : `Os limites dos cartões ${cardNames} foram restaurados automaticamente!`;
+
+    notification.querySelector('.notification-text').textContent = text;
+    notification.style.display = 'block';
+
+    // Auto-hide após 10 segundos
+    setTimeout(() => {
+        closeCreditCardNotification();
+    }, 10000);
+}
+
+// Fecha notificação de reset
+function closeCreditCardNotification() {
+    const notification = document.getElementById('creditCardResetNotification');
+    if (notification) {
+        notification.style.display = 'none';
+    }
+}
+
+// Reset manual de cartão de crédito
+async function resetCreditCard(accountId) {
+    if (!confirm('Deseja restaurar o limite deste cartão de crédito para o valor total?')) {
+        return;
+    }
+
+    try {
+        const response = await apiCall(`/api/accounts/${accountId}/reset`, {
+            method: 'POST'
+        });
+
+        if (response && response.card) {
+            showNotification(`Limite do cartão "${response.card.name}" restaurado para R$ ${formatCurrency(response.card.credit_limit)}!`, 'success');
+            await loadAccounts();
+            updateOverview();
+        }
+    } catch (error) {
+        console.error('Erro ao resetar cartão:', error);
+        showNotification('Erro ao resetar limite do cartão', 'error');
+    }
+}
+
+// Exibe alertas de cartões próximos do fechamento
+function displayCreditCardAlerts() {
+    const alertsContainer = document.getElementById('creditCardAlerts');
+    if (!alertsContainer) return;
+
+    const today = new Date().getDate();
+    const creditCards = accounts.filter(a => a.type === 'cartao');
+    const alerts = [];
+
+    creditCards.forEach(card => {
+        const closingDay = card.closing_day || 1;
+        let daysUntilClosing;
+
+        if (closingDay >= today) {
+            daysUntilClosing = closingDay - today;
+        } else {
+            // Próximo mês
+            const daysInMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
+            daysUntilClosing = (daysInMonth - today) + closingDay;
+        }
+
+        const usedLimit = (card.credit_limit || 0) - (card.balance || 0);
+        const usagePercentage = card.credit_limit > 0 ? (usedLimit / card.credit_limit) * 100 : 0;
+
+        // Alerta se fechamento próximo (3 dias ou menos)
+        if (daysUntilClosing <= 3 && daysUntilClosing >= 0) {
+            alerts.push({
+                type: 'warning',
+                icon: '📅',
+                message: `Cartão "${card.name}" fecha em ${daysUntilClosing} dia(s)! Fatura: R$ ${formatCurrency(usedLimit)}`
+            });
+        }
+
+        // Alerta se limite está alto (80% ou mais)
+        if (usagePercentage >= 80) {
+            alerts.push({
+                type: usagePercentage >= 95 ? 'danger' : 'warning',
+                icon: '💳',
+                message: `Cartão "${card.name}" está com ${usagePercentage.toFixed(1)}% do limite utilizado!`
+            });
+        }
+    });
+
+    if (alerts.length > 0) {
+        alertsContainer.style.display = 'block';
+        alertsContainer.innerHTML = alerts.map(alert => `
+            <div class="credit-card-alert ${alert.type}">
+                <span class="alert-icon">${alert.icon}</span>
+                <span class="alert-message">${alert.message}</span>
+            </div>
+        `).join('');
+    } else {
+        alertsContainer.style.display = 'none';
+    }
 }
 
 function initializeEventListeners() {
@@ -177,7 +338,7 @@ function navigateToPage(page) {
 // API Functions
 async function apiCall(endpoint, options = {}) {
     const token = localStorage.getItem('token');
-    
+
     const config = {
         headers: {
             'Content-Type': 'application/json',
@@ -188,7 +349,7 @@ async function apiCall(endpoint, options = {}) {
 
     try {
         const response = await fetch(`${API_BASE}${endpoint}`, config);
-        
+
         if (response.status === 401) {
             localStorage.removeItem('token');
             localStorage.removeItem('user');
@@ -197,7 +358,7 @@ async function apiCall(endpoint, options = {}) {
         }
 
         const data = await response.json();
-        
+
         if (!response.ok) {
             throw new Error(data.message || 'Erro na requisição');
         }
@@ -205,7 +366,6 @@ async function apiCall(endpoint, options = {}) {
         return data;
     } catch (error) {
         console.error('API Error:', error);
-        alert(error.message || 'Erro de conexão');
         throw error;
     }
 }
@@ -221,7 +381,7 @@ async function loadAllData() {
             loadAccounts(),
             loadGoals()
         ]);
-        
+
         // FORÇAR ATUALIZAÇÃO DE TODAS AS LISTAS APÓS CARREGAR TODOS OS DADOS
         await updateAllDisplays();
     } catch (error) {
@@ -232,7 +392,7 @@ async function loadAllData() {
 async function updateAllDisplays() {
     // Aguardar um pequeno delay para garantir que todos os dados foram processados
     await new Promise(resolve => setTimeout(resolve, 100));
-    
+
     // Diagnóstico - verificar se os dados foram carregados
     console.log('🔄 Atualizando displays...', {
         transactions: transactions.length,
@@ -240,14 +400,14 @@ async function updateAllDisplays() {
         accounts: accounts.length,
         budgets: budgets.length
     });
-    
+
     // Atualizar todas as displays na ordem correta
     displayExpenses();
     displayIncomes();
     displayBudgets();
     displayAccounts();
     displayGoals();
-    
+
     // Atualizar todos os seletores e resumos
     updateCategorySelects();
     updateAccountSelects();
@@ -257,7 +417,10 @@ async function updateAllDisplays() {
     updateAccountSummary();
     updateOverviewAccountSummary();
     updateOverview();
-    
+
+    // Exibir alertas de cartões de crédito
+    displayCreditCardAlerts();
+
     console.log('✅ Displays atualizados com sucesso');
 }
 
@@ -297,10 +460,10 @@ async function loadIncomes() {
     try {
         const data = await apiCall('/api/incomes');
         incomes = data.incomes || [];
-        
+
         // Popular selects de conta
         updateIncomeAccountSelects();
-        
+
         displayIncomes();
         updateAccountSummary(); // Atualiza resumo se houver conta selecionada
     } catch (error) {
@@ -311,19 +474,19 @@ async function loadIncomes() {
 // Atualizar selects de conta na página de receitas
 function updateIncomeAccountSelects() {
     const selects = ['incomeAccountFilter', 'selectedAccount'];
-    
+
     selects.forEach(selectId => {
         const select = document.getElementById(selectId);
         if (!select) return;
-        
+
         // Manter valor atual
         const currentValue = select.value;
-        
+
         // Limpar opções (exceto a primeira)
         while (select.children.length > 1) {
             select.removeChild(select.lastChild);
         }
-        
+
         // Adicionar contas disponíveis
         accounts.forEach(account => {
             const option = document.createElement('option');
@@ -331,7 +494,7 @@ function updateIncomeAccountSelects() {
             option.textContent = account.name;
             select.appendChild(option);
         });
-        
+
         // Restaurar valor selecionado
         select.value = currentValue;
     });
@@ -358,6 +521,7 @@ async function loadAccounts() {
         updateAccountBalances(); // Atualiza o cálculo de saldos automático
         updateAccountSummary(); // Atualizar resumo se houver conta selecionada
         updateOverviewAccountSummary(); // Atualizar resumo da overview
+        displayCreditCardAlerts(); // Atualizar alertas de cartões
     } catch (error) {
         console.error('Erro ao carregar contas:', error);
     }
@@ -367,26 +531,32 @@ async function loadAccounts() {
 function updateAccountBalances() {
     accounts.forEach(account => {
         if (account._id) {
+            // Para cartões de crédito, o saldo é gerenciado separadamente
+            if (account.type === 'cartao') {
+                // O saldo do cartão já vem do backend
+                return;
+            }
+
             // Busca receitas vinculadas a esta conta
             const accountIncomes = incomes.filter(income => income.account_id === account._id);
             const totalIncomes = accountIncomes.reduce((sum, income) => sum + (parseFloat(income.amount) || 0), 0);
-            
+
             // Busca transações vinculadas a esta conta
             const accountTransactions = transactions.filter(transaction => transaction.account_id === account._id);
             const totalTransactionIncomes = accountTransactions.reduce((sum, transaction) => sum + (parseFloat(transaction.income) || 0), 0);
             const totalTransactionExpenses = accountTransactions.reduce((sum, transaction) => sum + (parseFloat(transaction.expense) || 0), 0);
-            
+
             // Calcula o saldo total
             const calculatedBalance = totalIncomes + totalTransactionIncomes - totalTransactionExpenses;
-            
+
             // ATUALIZA o objeto account para que o saldo total seja calculado corretamente
             account.balance = calculatedBalance;
-            
+
             // Atualiza visualmente o saldo na interface
             const balanceElement = document.querySelector(`[data-account-id="${account._id}"] .account-balance`);
             if (balanceElement) {
                 balanceElement.textContent = `R$ ${formatCurrency(calculatedBalance)}`;
-                
+
                 // Adiciona classes CSS para cores baseadas no saldo
                 balanceElement.classList.remove('positive', 'negative', 'zero');
                 if (calculatedBalance > 0) {
@@ -399,7 +569,7 @@ function updateAccountBalances() {
             }
         }
     });
-    
+
     // Atualizar o saldo total na overview após recalcular todos os saldos
     updateTotalBalanceInOverview();
 }
@@ -410,10 +580,10 @@ async function recalculateAllBalances() {
         // Chama o endpoint para recalcular saldos (precisa ser implementado no backend)
         // Por enquanto, vamos usar a função updateAccountBalances()
         updateAccountBalances();
-        
+
         // Opcionalmente, poderia adicionar uma chamada para o backend:
         // await apiCall('/api/accounts/recalculate', { method: 'POST' });
-        
+
         console.log('Saldos das contas atualizados automaticamente!');
         showNotification('Saldos das contas atualizados!', 'success');
     } catch (error) {
@@ -428,7 +598,7 @@ function updateTotalBalanceInOverview() {
     const totalBalanceElement = document.getElementById('totalBalance');
     if (totalBalanceElement) {
         totalBalanceElement.textContent = `R$ ${formatCurrency(totalBalance)}`;
-        
+
         // Adiciona cor baseada no saldo
         totalBalanceElement.style.color = totalBalance >= 0 ? 'var(--success)' : 'var(--danger)';
     }
@@ -451,9 +621,9 @@ function showNotification(message, type = 'info') {
         animation: slideIn 0.3s ease;
     `;
     notification.textContent = message;
-    
+
     document.body.appendChild(notification);
-    
+
     setTimeout(() => {
         notification.style.animation = 'slideOut 0.3s ease';
         setTimeout(() => notification.remove(), 300);
@@ -473,20 +643,20 @@ async function loadGoals() {
 // Update Selects
 function updateCategorySelects() {
     const selects = ['expenseCategory', 'budgetCategory', 'expenseCategoryFilter'];
-    
+
     selects.forEach(selectId => {
         const select = document.getElementById(selectId);
         if (select) {
             const currentValue = select.value;
-            select.innerHTML = selectId.includes('Filter') ? 
-                '<option value="">Todas as categorias</option>' : 
+            select.innerHTML = selectId.includes('Filter') ?
+                '<option value="">Todas as categorias</option>' :
                 '<option value="">Selecione uma categoria</option>';
-            
+
             categories.forEach(category => {
                 const option = new Option(category.name, category._id);
                 select.add(option);
             });
-            
+
             if (currentValue) select.value = currentValue;
         }
     });
@@ -494,20 +664,20 @@ function updateCategorySelects() {
 
 function updateAccountSelects() {
     const selects = ['incomeAccount', 'expenseAccount', 'incomeAccountFilter', 'expenseAccountFilter'];
-    
+
     selects.forEach(selectId => {
         const select = document.getElementById(selectId);
         if (select) {
             const currentValue = select.value;
-            select.innerHTML = selectId.includes('Filter') ? 
-                '<option value="">Todas as contas</option>' : 
+            select.innerHTML = selectId.includes('Filter') ?
+                '<option value="">Todas as contas</option>' :
                 '<option value="">Selecione uma conta</option>';
-            
+
             accounts.forEach(account => {
                 const option = new Option(account.name, account._id);
                 select.add(option);
             });
-            
+
             if (currentValue) select.value = currentValue;
         }
     });
@@ -516,29 +686,29 @@ function updateAccountSelects() {
 // Overview Functions
 function updateOverview() {
     const currentMonth = new Date().toISOString().slice(0, 7);
-    
+
     // Calculate totals
     const monthIncomes = incomes.filter(i => i.month === currentMonth);
     const monthExpenses = transactions.filter(t => t.month === currentMonth);
-    
+
     const totalIncome = monthIncomes.reduce((sum, i) => sum + (i.amount || 0), 0);
     const totalExpense = monthExpenses.reduce((sum, t) => sum + (t.expense || 0), 0);
     const totalBalance = accounts.reduce((sum, a) => sum + (a.balance || 0), 0);
     const monthSavings = totalIncome - totalExpense;
-    
+
     // Update UI
     document.getElementById('totalBalance').textContent = `R$ ${formatCurrency(totalBalance)}`;
     document.getElementById('monthIncome').textContent = `R$ ${formatCurrency(totalIncome)}`;
     document.getElementById('monthExpense').textContent = `R$ ${formatCurrency(totalExpense)}`;
     document.getElementById('monthSavings').textContent = `R$ ${formatCurrency(monthSavings)}`;
-    
+
     // Color savings based on positive/negative
     const savingsElement = document.getElementById('monthSavings');
     savingsElement.style.color = monthSavings >= 0 ? 'var(--success)' : 'var(--danger)';
-    
+
     // Display recent transactions
     displayRecentTransactions();
-    
+
     // Update charts
     updateOverviewCharts();
 }
@@ -548,7 +718,7 @@ function displayRecentTransactions() {
     const recent = [...transactions, ...incomes.map(i => ({...i, isIncome: true}))]
         .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
         .slice(0, 5);
-    
+
     container.innerHTML = recent.map(item => {
         const isIncome = item.isIncome;
         const amount = isIncome ? item.amount : item.expense;
@@ -556,7 +726,7 @@ function displayRecentTransactions() {
         const icon = isIncome ? '💵' : '💸';
         const amountClass = isIncome ? 'income' : 'expense';
         const sign = isIncome ? '+' : '-';
-        
+
         return `
             <div class="transaction-item">
                 <div class="transaction-info">
@@ -578,13 +748,13 @@ function displayRecentTransactions() {
 // Event handler para mudança na seleção de conta
 function onAccountSelectionChanged() {
     const selectedAccountId = document.getElementById('selectedAccount').value;
-    
+
     // Atualizar o filtro de conta também
     const incomeAccountFilter = document.getElementById('incomeAccountFilter');
     if (selectedAccountId) {
         incomeAccountFilter.value = selectedAccountId;
     }
-    
+
     // Atualizar resumo e filtros
     updateAccountSummary();
     filterIncomes();
@@ -594,53 +764,53 @@ function onAccountSelectionChanged() {
 function updateAccountSummary() {
     const selectedAccountId = document.getElementById('selectedAccount').value;
     const summaryContainer = document.getElementById('accountSummary');
-    
+
     if (!selectedAccountId) {
         summaryContainer.style.display = 'none';
         return;
     }
-    
+
     const selectedAccount = accounts.find(a => a._id === selectedAccountId);
     if (!selectedAccount) {
         summaryContainer.style.display = 'none';
         return;
     }
-    
+
     // Filtrar receitas da conta selecionada
     const accountIncomes = incomes.filter(income => income.account_id === selectedAccountId);
-    
+
     // Calcular estatísticas
     const totalIncomes = accountIncomes.reduce((sum, income) => sum + income.amount, 0);
-    
+
     // Mês atual (YYYY-MM)
     const currentDate = new Date();
     const currentMonth = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
     const currentMonthIncomes = accountIncomes
         .filter(income => income.month === currentMonth)
         .reduce((sum, income) => sum + income.amount, 0);
-    
+
     // Maior receita
-    const largestIncome = accountIncomes.length > 0 
+    const largestIncome = accountIncomes.length > 0
         ? Math.max(...accountIncomes.map(income => income.amount))
         : 0;
-    
+
     // Última receita (mais recente)
     const sortedIncomes = [...accountIncomes].sort((a, b) => {
         if (a.month === b.month) return 0;
         return a.month > b.month ? -1 : 1;
     });
     const lastIncome = sortedIncomes.length > 0 ? sortedIncomes[0] : null;
-    
+
     // Atualizar elementos do resumo
     document.getElementById('summaryAccountName').textContent = selectedAccount.name;
     document.getElementById('summaryAccountType').textContent = getAccountTypeLabel(selectedAccount.type);
     document.getElementById('summaryTotalIncomes').textContent = `R$ ${formatCurrency(totalIncomes)}`;
     document.getElementById('summaryCurrentMonth').textContent = `R$ ${formatCurrency(currentMonthIncomes)}`;
     document.getElementById('summaryLargestIncome').textContent = `R$ ${formatCurrency(largestIncome)}`;
-    document.getElementById('summaryLastIncome').textContent = lastIncome 
+    document.getElementById('summaryLastIncome').textContent = lastIncome
         ? `${formatMonth(lastIncome.month)} - R$ ${formatCurrency(lastIncome.amount)}`
         : '-';
-    
+
     // Mostrar resumo
     summaryContainer.style.display = 'block';
 }
@@ -665,39 +835,39 @@ function onOverviewAccountSelectionChanged() {
 function updateOverviewAccountSummary() {
     const selectedAccountId = document.getElementById('overviewSelectedAccount').value;
     const summaryContainer = document.getElementById('overviewAccountSummary');
-    
+
     if (!selectedAccountId) {
         summaryContainer.style.display = 'none';
         return;
     }
-    
+
     const selectedAccount = accounts.find(a => a._id === selectedAccountId);
     if (!selectedAccount) {
         summaryContainer.style.display = 'none';
         return;
     }
-    
+
     // Filtrar receitas e transações da conta selecionada
     const accountIncomes = incomes.filter(income => income.account_id === selectedAccountId);
     const accountTransactions = transactions.filter(t => t.account_id === selectedAccountId);
-    
+
     // Calcular estatísticas
     const currentDate = new Date();
     const currentMonth = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}`;
-    
+
     // Receitas do mês atual
     const monthIncomes = accountIncomes
         .filter(income => income.month === currentMonth)
         .reduce((sum, income) => sum + income.amount, 0);
-    
+
     // Despesas do mês atual (transações com expense > 0)
     const monthExpenses = accountTransactions
         .filter(t => t.month === currentMonth && t.expense > 0)
         .reduce((sum, t) => sum + t.expense, 0);
-    
+
     // Balanço do mês (receitas - despesas)
     const monthBalance = monthIncomes - monthExpenses;
-    
+
     // Atualizar elementos do resumo
     document.getElementById('overviewSummaryAccountName').textContent = selectedAccount.name;
     document.getElementById('overviewSummaryAccountType').textContent = getAccountTypeLabel(selectedAccount.type);
@@ -705,7 +875,7 @@ function updateOverviewAccountSummary() {
     document.getElementById('overviewAccountIncomes').textContent = `R$ ${formatCurrency(monthIncomes)}`;
     document.getElementById('overviewAccountExpenses').textContent = `R$ ${formatCurrency(monthExpenses)}`;
     document.getElementById('overviewMonthBalance').textContent = `R$ ${formatCurrency(monthBalance)}`;
-    
+
     // Mostrar resumo
     summaryContainer.style.display = 'block';
 }
@@ -714,15 +884,15 @@ function updateOverviewAccountSummary() {
 function updateOverviewAccountSelect() {
     const select = document.getElementById('overviewSelectedAccount');
     if (!select) return;
-    
+
     // Manter valor atual
     const currentValue = select.value;
-    
+
     // Limpar opções (exceto a primeira)
     while (select.children.length > 1) {
         select.removeChild(select.lastChild);
     }
-    
+
     // Adicionar contas disponíveis
     accounts.forEach(account => {
         const option = document.createElement('option');
@@ -730,30 +900,30 @@ function updateOverviewAccountSelect() {
         option.textContent = account.name;
         select.appendChild(option);
     });
-    
+
     // Restaurar valor selecionado
     select.value = currentValue;
 }
 
 function displayIncomes(filtered = incomes) {
     const tbody = document.querySelector('#incomesTable tbody');
-    
+
     // Se há conta selecionada, destacar apenas suas receitas
     const selectedAccountId = document.getElementById('selectedAccount').value;
     let displayIncomes = filtered;
-    
+
     if (selectedAccountId) {
         displayIncomes = filtered.filter(income => income.account_id === selectedAccountId);
     }
-    
+
     tbody.innerHTML = displayIncomes.map(income => {
         const account = accounts.find(a => a._id === income.account_id);
         const accountName = account ? account.name : '-';
         const isSelectedAccount = income.account_id === selectedAccountId;
-        
+
         // Adicionar destaque visual se for da conta selecionada
         const rowClass = isSelectedAccount ? 'selected-account-income' : '';
-        
+
         return `
             <tr class="${rowClass}">
                 <td>${formatMonth(income.month)}</td>
@@ -777,28 +947,28 @@ function filterIncomes() {
     const monthFilter = document.getElementById('incomeMonthFilter').value;
     const accountFilter = document.getElementById('incomeAccountFilter').value;
     const selectedAccount = document.getElementById('selectedAccount').value;
-    
+
     let filtered = incomes.filter(income => {
         const matchesMonth = !monthFilter || income.month === monthFilter;
         const matchesAccount = !accountFilter || income.account_id === accountFilter;
-        
+
         // Se há conta selecionada, dar prioridade a ela
         if (selectedAccount) {
             return matchesMonth && income.account_id === selectedAccount;
         }
-        
+
         return matchesMonth && matchesAccount;
     });
-    
+
     displayIncomes(filtered);
 }
 
 function openIncomeModal(income = null) {
     const modal = document.getElementById('incomeModal');
     const form = document.getElementById('incomeForm');
-    
+
     form.reset();
-    
+
     if (income) {
         document.getElementById('incomeModalTitle').textContent = 'Editar Receita';
         document.getElementById('incomeId').value = income._id;
@@ -811,7 +981,7 @@ function openIncomeModal(income = null) {
         const now = new Date();
         document.getElementById('incomeMonth').value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     }
-    
+
     modal.style.display = 'block';
 }
 
@@ -821,7 +991,7 @@ function closeIncomeModal() {
 
 async function saveIncome(event) {
     event.preventDefault();
-    
+
     const incomeId = document.getElementById('incomeId').value;
     const incomeData = {
         month: document.getElementById('incomeMonth').value,
@@ -829,7 +999,7 @@ async function saveIncome(event) {
         amount: parseFloat(document.getElementById('incomeAmount').value),
         account_id: document.getElementById('incomeAccount').value || null
     };
-    
+
     try {
         if (incomeId) {
             await apiCall(`/api/incomes/${incomeId}`, {
@@ -842,7 +1012,7 @@ async function saveIncome(event) {
                 body: JSON.stringify(incomeData)
             });
         }
-        
+
         closeIncomeModal();
         await loadIncomes();
         await loadAccounts(); // Recarrega as contas para atualizar os saldos
@@ -866,12 +1036,12 @@ async function deleteIncome(incomeId) {
     if (!confirm('Tem certeza que deseja excluir esta receita?')) {
         return;
     }
-    
+
     try {
         await apiCall(`/api/incomes/${incomeId}`, {
             method: 'DELETE'
         });
-        
+
         await loadIncomes();
         await loadAccounts(); // Recarrega as contas para atualizar os saldos
         recalculateAllBalances(); // Recalcula todos os saldos automaticamente
@@ -886,20 +1056,20 @@ async function deleteIncome(incomeId) {
 // Expense Functions
 function displayExpenses(filtered = transactions) {
     const tbody = document.querySelector('#expensesTable tbody');
-    
+
     // Aguardar um pouco se os dados ainda não estiverem carregados
     if (categories.length === 0 || accounts.length === 0) {
         console.log('⏳ Aguardando carregamento de dados para exibir despesas...');
         setTimeout(() => displayExpenses(filtered), 200);
         return;
     }
-    
+
     tbody.innerHTML = filtered.map(transaction => {
         const category = categories.find(c => c._id === transaction.category_id);
         const account = accounts.find(a => a._id === transaction.account_id);
         const categoryName = category ? category.name : '-';
         const accountName = account ? account.name : '-';
-        
+
         return `
             <tr>
                 <td>${formatMonth(transaction.month)}</td>
@@ -925,7 +1095,7 @@ function filterExpenses() {
     const categoryFilter = document.getElementById('expenseCategoryFilter').value;
     const accountFilter = document.getElementById('expenseAccountFilter').value;
     const searchFilter = document.getElementById('expenseSearchFilter').value.toLowerCase();
-    
+
     let filtered = transactions.filter(transaction => {
         const matchesMonth = !monthFilter || transaction.month === monthFilter;
         const matchesCategory = !categoryFilter || transaction.category_id === categoryFilter;
@@ -933,7 +1103,7 @@ function filterExpenses() {
         const matchesSearch = !searchFilter || transaction.reason.toLowerCase().includes(searchFilter);
         return matchesMonth && matchesCategory && matchesAccount && matchesSearch;
     });
-    
+
     displayExpenses(filtered);
     updateExpenseFilterCount(filtered.length, transactions.length);
 }
@@ -958,9 +1128,9 @@ function updateExpenseFilterCount(filtered, total) {
 function openExpenseModal(expense = null) {
     const modal = document.getElementById('expenseModal');
     const form = document.getElementById('expenseForm');
-    
+
     form.reset();
-    
+
     if (expense) {
         document.getElementById('expenseModalTitle').textContent = 'Editar Despesa';
         document.getElementById('expenseId').value = expense._id;
@@ -974,7 +1144,7 @@ function openExpenseModal(expense = null) {
         const now = new Date();
         document.getElementById('expenseMonth').value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     }
-    
+
     modal.style.display = 'block';
 }
 
@@ -984,12 +1154,12 @@ function closeExpenseModal() {
 
 async function saveExpense(event) {
     event.preventDefault();
-    
+
     const expenseId = document.getElementById('expenseId').value;
     const expenseAmount = parseFloat(document.getElementById('expenseAmount').value);
     const expenseMonth = document.getElementById('expenseMonth').value;
     const categoryId = document.getElementById('expenseCategory').value;
-    
+
     const expenseData = {
         month: expenseMonth,
         reason: document.getElementById('expenseReason').value,
@@ -999,10 +1169,10 @@ async function saveExpense(event) {
         current_value: 0,
         income: 0
     };
-    
+
     // Verificar orçamento antes de salvar
     const budgetValidation = await checkBudgetLimit(expenseAmount, categoryId, expenseMonth);
-    
+
     if (budgetValidation.exceedsBudget) {
         const confirmExceed = confirm(
             `⚠️ ATENÇÃO: Esta despesa irá exceder o orçamento!\n\n` +
@@ -1014,22 +1184,22 @@ async function saveExpense(event) {
             `Excedente: R$ ${formatCurrency(budgetValidation.exceededAmount)}\n\n` +
             `Deseja continuar mesmo assim?`
         );
-        
+
         if (!confirmExceed) {
             showToast('Operação cancelada pelo usuário', 'warning');
             return;
         }
-        
+
         // Mostrar notificação de alerta
         showToast(`⚠️ Orçamento da categoria "${budgetValidation.categoryName}" será excedido!`, 'warning');
     }
-    
+
     // Mostrar loading
     const submitBtn = event.target.querySelector('button[type="submit"]');
     const originalText = submitBtn.textContent;
     submitBtn.disabled = true;
     submitBtn.textContent = 'Salvando...';
-    
+
     try {
         if (expenseId) {
             await apiCall(`/api/transactions/${expenseId}`, {
@@ -1044,19 +1214,19 @@ async function saveExpense(event) {
             });
             showToast('Despesa salva com sucesso!', 'success');
         }
-        
+
         closeExpenseModal();
-        
+
         // Atualizar dados com refresh automático
         await refreshAllData();
-        
+
         // Se excedeu o orçamento, mostrar aviso adicional
         if (budgetValidation.exceedsBudget) {
             setTimeout(() => {
                 showToast('Revise os orçamentos das categorias em vermelho!', 'error');
             }, 2000);
         }
-        
+
     } catch (error) {
         console.error('Erro ao salvar despesa:', error);
         showToast('Erro ao salvar despesa: ' + error.message, 'error');
@@ -1078,12 +1248,12 @@ async function deleteExpense(expenseId) {
     if (!confirm('Tem certeza que deseja excluir esta despesa?')) {
         return;
     }
-    
+
     try {
         await apiCall(`/api/transactions/${expenseId}`, {
             method: 'DELETE'
         });
-        
+
         await loadTransactions();
         await loadAccounts(); // Recarrega as contas para atualizar os saldos
         recalculateAllBalances(); // Recalcula todos os saldos automaticamente
@@ -1099,11 +1269,11 @@ async function deleteExpense(expenseId) {
 async function checkBudgetLimit(newExpenseAmount, categoryId, month) {
     // Encontrar orçamento para a categoria e mês
     const budget = budgets.find(b => b.category_id === categoryId && b.month === month);
-    
+
     if (!budget) {
-        return { 
-            hasBudget: false, 
-            exceedsBudget: false, 
+        return {
+            hasBudget: false,
+            exceedsBudget: false,
             categoryName: getCategoryName(categoryId),
             budgetAmount: 0,
             spent: 0,
@@ -1111,17 +1281,17 @@ async function checkBudgetLimit(newExpenseAmount, categoryId, month) {
             exceededAmount: 0
         };
     }
-    
+
     // Calcular valor já gasto (usando campo spent do backend se disponível)
-    const spent = budget.spent !== undefined ? budget.spent : 
+    const spent = budget.spent !== undefined ? budget.spent :
         transactions
             .filter(t => t.month === month && t.category_id === categoryId)
             .reduce((sum, t) => sum + (t.expense || 0), 0);
-    
+
     const totalAfter = spent + newExpenseAmount;
     const exceededAmount = Math.max(0, totalAfter - budget.amount);
     const exceedsBudget = totalAfter > budget.amount;
-    
+
     return {
         hasBudget: true,
         exceedsBudget,
@@ -1143,17 +1313,17 @@ function getCategoryName(categoryId) {
 // Enhanced Toast Notifications
 function showToast(message, type = 'info', duration = 4000) {
     const toastContainer = getOrCreateToastContainer();
-    
+
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
-    
+
     const icons = {
         success: '✅',
         error: '❌',
         warning: '⚠️',
         info: 'ℹ️'
     };
-    
+
     toast.innerHTML = `
         <div class="toast-content">
             <span class="toast-icon">${icons[type] || icons.info}</span>
@@ -1161,9 +1331,9 @@ function showToast(message, type = 'info', duration = 4000) {
             <button class="toast-close" onclick="this.parentElement.parentElement.remove()">×</button>
         </div>
     `;
-    
+
     toastContainer.appendChild(toast);
-    
+
     // Auto remove
     setTimeout(() => {
         if (toast.parentElement) {
@@ -1196,7 +1366,7 @@ function getOrCreateToastContainer() {
 async function refreshAllData() {
     try {
         showToast('Atualizando dados...', 'info', 2000);
-        
+
         await Promise.all([
             loadCategories(),
             loadTransactions(),
@@ -1205,10 +1375,10 @@ async function refreshAllData() {
             loadAccounts(),
             loadGoals()
         ]);
-        
+
         // Usar a função centralizada de atualização
         await updateAllDisplays();
-        
+
         showToast('Dados atualizados!', 'success', 2000);
     } catch (error) {
         console.error('Erro ao atualizar dados:', error);
@@ -1219,95 +1389,49 @@ async function refreshAllData() {
 // Budget Functions
 function displayBudgets(filtered = budgets) {
     const container = document.getElementById('budgetsList');
-    
+
     // Aguardar um pouco se os dados ainda não estiverem carregados
     if (categories.length === 0 || transactions.length === 0) {
         console.log('⏳ Aguardando carregamento de dados para exibir orçamentos...');
         setTimeout(() => displayBudgets(filtered), 200);
         return;
     }
-    
+
     if (filtered.length === 0) {
         container.innerHTML = '<p style="text-align: center; color: var(--text-secondary);">Nenhum orçamento encontrado</p>';
         return;
     }
-    
-    // Loading state
-    container.innerHTML = '<div style="text-align: center; padding: 2rem;"><div class="loading-spinner"></div><p>Carregando orçamentos...</p></div>';
-    
+
     container.innerHTML = filtered.map(budget => {
         const category = categories.find(c => c._id === budget.category_id);
         const categoryName = category ? category.name : 'Categoria não encontrada';
-        
+
         // Usar o campo 'spent' do backend ou calcular se não existir
-        const spent = budget.spent !== undefined ? budget.spent : 
+        const spent = budget.spent !== undefined ? budget.spent :
             transactions
                 .filter(t => t.month === budget.month && t.category_id === budget.category_id)
                 .reduce((sum, t) => sum + (t.expense || 0), 0);
-        
+
         const percentage = (spent / budget.amount) * 100;
         const remaining = budget.amount - spent;
-        
-        // Definir classes de progresso baseadas no percentual
+
         let progressClass = '';
-        let statusBadge = '';
-        let statusColor = '';
-        
-        if (percentage >= 90) {
-            progressClass = 'danger';
-            statusBadge = 'danger';
-            statusColor = '#ef4444';
-        } else if (percentage >= 70) {
-            progressClass = 'warning';
-            statusBadge = 'warning';
-            statusColor = '#f59e0b';
-        } else {
-            progressClass = 'success';
-            statusBadge = 'success';
-            statusColor = '#10b981';
-        }
-        
-        // Definir status do orçamento
-        let statusText = '';
-        if (percentage >= 100) {
-            statusText = 'EXCEDIDO';
-        } else if (percentage >= 90) {
-            statusText = 'CRÍTICO';
-        } else if (percentage >= 70) {
-            statusText = 'ATENÇÃO';
-        } else {
-            statusText = 'OK';
-        }
-        
+        if (percentage >= 90) progressClass = 'danger';
+        else if (percentage >= 70) progressClass = 'warning';
+
         return `
-            <div class="budget-card" data-budget-id="${budget._id}">
+            <div class="budget-card">
                 <div class="budget-header">
-                    <div class="budget-category-info">
-                        <h4>${categoryName}</h4>
-                        <span class="budget-status-badge ${statusBadge}">${statusText}</span>
-                    </div>
-                    <div class="budget-amount-info">
-                        <div class="budget-amount">Orçamento: R$ ${formatCurrency(budget.amount)}</div>
-                        <div class="budget-spent">Gasto: R$ ${formatCurrency(spent)}</div>
-                    </div>
+                    <h4>${categoryName}</h4>
+                    <span class="budget-amount">R$ ${formatCurrency(budget.amount)}</span>
                 </div>
                 <div class="budget-progress">
                     <div class="progress-bar">
                         <div class="progress-fill ${progressClass}" style="width: ${Math.min(percentage, 100)}%"></div>
                     </div>
                     <div class="progress-text">
-                        <div class="progress-main">
-                            <strong>${percentage.toFixed(1)}%</strong> usado
-                        </div>
-                        <div class="progress-details">
-                            <span class="remaining">Restante: R$ ${formatCurrency(remaining)}</span>
-                            ${percentage >= 100 ? `<span class="exceeded" style="color: var(--danger); font-weight: bold;">Excedido: R$ ${formatCurrency(Math.abs(remaining))}</span>` : ''}
-                        </div>
-                    </div>
-                </div>
-                <div class="budget-visual-indicator">
-                    <div class="budget-meter">
-                        <div class="meter-segment ${percentage >= 100 ? 'exceeded' : percentage >= 90 ? 'critical' : percentage >= 70 ? 'warning' : 'safe'}" style="width: ${Math.min(percentage, 100)}%"></div>
+                        ${percentage.toFixed(1)}% usado - R$ ${formatCurrency(spent)} de R$ ${formatCurrency(budget.amount)}
+                        ${remaining < 0 ? `<br><span style="color: var(--danger);">Excedido: R$ ${formatCurrency(Math.abs(remaining))}</span>` : ''}
                     </div>
                 </div>
                 <div class="budget-actions">
@@ -1325,21 +1449,21 @@ function displayBudgets(filtered = budgets) {
 
 function filterBudgets() {
     const monthFilter = document.getElementById('budgetMonthFilter').value;
-    
+
     let filtered = budgets;
     if (monthFilter) {
         filtered = budgets.filter(b => b.month === monthFilter);
     }
-    
+
     displayBudgets(filtered);
 }
 
 function openBudgetModal(budget = null) {
     const modal = document.getElementById('budgetModal');
     const form = document.getElementById('budgetForm');
-    
+
     form.reset();
-    
+
     if (budget) {
         document.getElementById('budgetModalTitle').textContent = 'Editar Orçamento';
         document.getElementById('budgetId').value = budget._id;
@@ -1351,7 +1475,7 @@ function openBudgetModal(budget = null) {
         const now = new Date();
         document.getElementById('budgetMonth').value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     }
-    
+
     modal.style.display = 'block';
 }
 
@@ -1361,14 +1485,14 @@ function closeBudgetModal() {
 
 async function saveBudget(event) {
     event.preventDefault();
-    
+
     const budgetId = document.getElementById('budgetId').value;
     const budgetData = {
         month: document.getElementById('budgetMonth').value,
         category_id: document.getElementById('budgetCategory').value,
         amount: parseFloat(document.getElementById('budgetAmount').value)
     };
-    
+
     try {
         if (budgetId) {
             await apiCall(`/api/budgets/${budgetId}`, {
@@ -1381,7 +1505,7 @@ async function saveBudget(event) {
                 body: JSON.stringify(budgetData)
             });
         }
-        
+
         closeBudgetModal();
         await loadBudgets();
     } catch (error) {
@@ -1400,46 +1524,111 @@ async function deleteBudget(budgetId) {
     if (!confirm('Tem certeza que deseja excluir este orçamento?')) {
         return;
     }
-    
+
     try {
         await apiCall(`/api/budgets/${budgetId}`, {
             method: 'DELETE'
         });
-        
+
         await loadBudgets();
     } catch (error) {
         console.error('Erro ao excluir orçamento:', error);
     }
 }
 
-// Account Functions
+// =====================================================
+// ACCOUNT FUNCTIONS (COM SUPORTE A CARTÃO DE CRÉDITO)
+// =====================================================
+
 function displayAccounts() {
     const container = document.getElementById('accountsList');
-    
+
     if (accounts.length === 0) {
         container.innerHTML = '<p style="text-align: center; color: var(--text-secondary);">Nenhuma conta encontrada</p>';
         return;
     }
-    
+
     const typeLabels = {
         'corrente': 'Conta Corrente',
         'poupanca': 'Poupança',
         'cartao': 'Cartão de Crédito',
         'investimento': 'Investimento'
     };
-    
+
     container.innerHTML = accounts.map(account => {
+        const isCreditCard = account.type === 'cartao';
+
+        // Informações específicas de cartão de crédito
+        let creditCardInfo = '';
+        let creditCardActions = '';
+
+        if (isCreditCard) {
+            const creditLimit = account.credit_limit || 0;
+            const balance = account.balance || 0;
+            const usedLimit = creditLimit - balance;
+            const usagePercentage = creditLimit > 0 ? (usedLimit / creditLimit) * 100 : 0;
+            const closingDay = account.closing_day || 1;
+
+            // Calcular dias até o fechamento
+            const today = new Date().getDate();
+            let daysUntilClosing;
+            if (closingDay >= today) {
+                daysUntilClosing = closingDay - today;
+            } else {
+                const daysInMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).getDate();
+                daysUntilClosing = (daysInMonth - today) + closingDay;
+            }
+
+            // Determinar classe de progresso
+            let progressClass = '';
+            if (usagePercentage >= 90) progressClass = 'danger';
+            else if (usagePercentage >= 70) progressClass = 'warning';
+
+            creditCardInfo = `
+                <div class="credit-card-info-display">
+                    <div class="credit-limit-info">
+                        <span class="label">Limite Total:</span>
+                        <span class="value">R$ ${formatCurrency(creditLimit)}</span>
+                    </div>
+                    <div class="credit-usage-bar">
+                        <div class="progress-bar">
+                            <div class="progress-fill ${progressClass}" style="width: ${Math.min(usagePercentage, 100)}%"></div>
+                        </div>
+                        <div class="usage-text">
+                            <span>Usado: R$ ${formatCurrency(usedLimit)} (${usagePercentage.toFixed(1)}%)</span>
+                            <span>Disponível: R$ ${formatCurrency(balance)}</span>
+                        </div>
+                    </div>
+                    <div class="closing-day-info">
+                        <span class="label">📅 Fechamento:</span>
+                        <span class="value">Dia ${closingDay} (${daysUntilClosing === 0 ? 'Hoje!' : `em ${daysUntilClosing} dias`})</span>
+                    </div>
+                </div>
+            `;
+
+            creditCardActions = `
+                <button onclick="resetCreditCard('${account._id}')" class="btn-success" title="Restaurar limite do cartão">
+                    🔄 Resetar Limite
+                </button>
+            `;
+        }
+
         return `
-            <div class="account-card" data-account-id="${account._id}">
+            <div class="account-card ${isCreditCard ? 'credit-card-account' : ''}" data-account-id="${account._id}">
                 <div class="account-header">
                     <span class="account-type">${typeLabels[account.type] || account.type}</span>
+                    ${isCreditCard ? '<span class="credit-card-badge">💳</span>' : ''}
                 </div>
-                <div class="account-balance">R$ ${formatCurrency(account.balance || 0)}</div>
+                <div class="account-balance ${isCreditCard ? 'credit-card-balance' : ''}">
+                    ${isCreditCard ? 'Disponível: ' : ''}R$ ${formatCurrency(account.balance || 0)}
+                </div>
                 <div class="account-name">${account.name}</div>
+                ${creditCardInfo}
                 <div class="account-actions">
                     <button onclick="editAccount('${account._id}')" class="btn-secondary" style="padding: 0.5rem 1rem; font-size: 0.875rem;">
                         Editar
                     </button>
+                    ${creditCardActions}
                     <button onclick="deleteAccount('${account._id}')" class="btn-danger">
                         Excluir
                     </button>
@@ -1452,19 +1641,31 @@ function displayAccounts() {
 function openAccountModal(account = null) {
     const modal = document.getElementById('accountModal');
     const form = document.getElementById('accountForm');
-    
+
     form.reset();
-    
+
+    // Inicializar campos de cartão de crédito
+    initializeClosingDaySelect();
+
     if (account) {
         document.getElementById('accountModalTitle').textContent = 'Editar Conta';
         document.getElementById('accountId').value = account._id;
         document.getElementById('accountName').value = account.name;
         document.getElementById('accountType').value = account.type;
         document.getElementById('accountBalance').value = account.balance || 0;
+
+        // Campos de cartão de crédito
+        if (account.type === 'cartao') {
+            document.getElementById('accountCreditLimit').value = account.credit_limit || 0;
+            document.getElementById('accountClosingDay').value = account.closing_day || 1;
+        }
     } else {
         document.getElementById('accountModalTitle').textContent = 'Nova Conta';
     }
-    
+
+    // Atualizar visibilidade dos campos
+    toggleCreditCardFields();
+
     modal.style.display = 'block';
 }
 
@@ -1474,32 +1675,48 @@ function closeAccountModal() {
 
 async function saveAccount(event) {
     event.preventDefault();
-    
+
     const accountId = document.getElementById('accountId').value;
+    const accountType = document.getElementById('accountType').value;
+
     const accountData = {
         name: document.getElementById('accountName').value,
-        type: document.getElementById('accountType').value,
-        balance: parseFloat(document.getElementById('accountBalance').value)
+        type: accountType
     };
-    
+
+    // Adicionar campos específicos baseado no tipo
+    if (accountType === 'cartao') {
+        const creditLimit = parseFloat(document.getElementById('accountCreditLimit').value) || 0;
+        const closingDay = parseInt(document.getElementById('accountClosingDay').value) || 1;
+
+        accountData.credit_limit = creditLimit;
+        accountData.closing_day = closingDay;
+        accountData.balance = creditLimit; // Saldo inicial = limite
+    } else {
+        accountData.balance = parseFloat(document.getElementById('accountBalance').value) || 0;
+    }
+
     try {
         if (accountId) {
             await apiCall(`/api/accounts/${accountId}`, {
                 method: 'PUT',
                 body: JSON.stringify(accountData)
             });
+            showNotification('Conta atualizada com sucesso!', 'success');
         } else {
             await apiCall('/api/accounts', {
                 method: 'POST',
                 body: JSON.stringify(accountData)
             });
+            showNotification('Conta criada com sucesso!', 'success');
         }
-        
+
         closeAccountModal();
         await loadAccounts();
         updateOverview();
     } catch (error) {
         console.error('Erro ao salvar conta:', error);
+        showNotification('Erro ao salvar conta', 'error');
     }
 }
 
@@ -1514,37 +1731,39 @@ async function deleteAccount(accountId) {
     if (!confirm('Tem certeza que deseja excluir esta conta?')) {
         return;
     }
-    
+
     try {
         await apiCall(`/api/accounts/${accountId}`, {
             method: 'DELETE'
         });
-        
+
         await loadAccounts();
         updateOverview();
+        showNotification('Conta excluída com sucesso!', 'success');
     } catch (error) {
         console.error('Erro ao excluir conta:', error);
+        showNotification('Erro ao excluir conta', 'error');
     }
 }
 
 // Goal Functions
 function displayGoals() {
     const container = document.getElementById('goalsList');
-    
+
     if (goals.length === 0) {
         container.innerHTML = '<p style="text-align: center; color: var(--text-secondary);">Nenhuma meta encontrada</p>';
         return;
     }
-    
+
     container.innerHTML = goals.map(goal => {
         const percentage = (goal.current_amount / goal.target_amount) * 100;
         const remaining = goal.target_amount - goal.current_amount;
         const isCompleted = percentage >= 100;
-        
+
         let progressClass = '';
         if (percentage >= 100) progressClass = 'success';
         else if (percentage >= 70) progressClass = 'warning';
-        
+
         return `
             <div class="goal-card">
                 <div class="goal-header">
@@ -1585,9 +1804,9 @@ function displayGoals() {
 function openGoalModal(goal = null) {
     const modal = document.getElementById('goalModal');
     const form = document.getElementById('goalForm');
-    
+
     form.reset();
-    
+
     if (goal) {
         document.getElementById('goalModalTitle').textContent = 'Editar Meta';
         document.getElementById('goalId').value = goal._id;
@@ -1598,7 +1817,7 @@ function openGoalModal(goal = null) {
     } else {
         document.getElementById('goalModalTitle').textContent = 'Nova Meta';
     }
-    
+
     modal.style.display = 'block';
 }
 
@@ -1608,7 +1827,7 @@ function closeGoalModal() {
 
 async function saveGoal(event) {
     event.preventDefault();
-    
+
     const goalId = document.getElementById('goalId').value;
     const goalData = {
         name: document.getElementById('goalName').value,
@@ -1616,7 +1835,7 @@ async function saveGoal(event) {
         current_amount: parseFloat(document.getElementById('goalCurrent').value),
         deadline: document.getElementById('goalDeadline').value
     };
-    
+
     try {
         if (goalId) {
             await apiCall(`/api/goals/${goalId}`, {
@@ -1629,7 +1848,7 @@ async function saveGoal(event) {
                 body: JSON.stringify(goalData)
             });
         }
-        
+
         closeGoalModal();
         await loadGoals();
     } catch (error) {
@@ -1648,12 +1867,12 @@ async function deleteGoal(goalId) {
     if (!confirm('Tem certeza que deseja excluir esta meta?')) {
         return;
     }
-    
+
     try {
         await apiCall(`/api/goals/${goalId}`, {
             method: 'DELETE'
         });
-        
+
         await loadGoals();
     } catch (error) {
         console.error('Erro ao excluir meta:', error);
@@ -1663,18 +1882,18 @@ async function deleteGoal(goalId) {
 // Category Functions
 function displayCategories() {
     const container = document.getElementById('categoriesList');
-    
+
     if (categories.length === 0) {
         container.innerHTML = '<p style="text-align: center; color: var(--text-secondary);">Nenhuma categoria encontrada</p>';
         return;
     }
-    
+
     container.innerHTML = categories.map(category => {
         // Conta quantas transações e orçamentos usam esta categoria
         const transactionsCount = transactions.filter(t => t.category_id === category._id).length;
         const budgetsCount = budgets.filter(b => b.category_id === category._id).length;
         const totalUsage = transactionsCount + budgetsCount;
-        
+
         return `
             <div class="category-card">
                 <div class="category-header">
@@ -1691,7 +1910,7 @@ function displayCategories() {
                 ${category.description ? `<div class="category-description">${category.description}</div>` : ''}
                 <div class="category-usage">
                     <small>
-                        📊 Usada em ${transactionsCount} transação${transactionsCount !== 1 ? 'ões' : ''} 
+                        📊 Usada em ${transactionsCount} transação${transactionsCount !== 1 ? 'ões' : ''}
                         e ${budgetsCount} orçamento${budgetsCount !== 1 ? 's' : ''}
                     </small>
                 </div>
@@ -1703,9 +1922,9 @@ function displayCategories() {
 function openCategoryModal(category = null) {
     const modal = document.getElementById('categoryModal');
     const form = document.getElementById('categoryForm');
-    
+
     form.reset();
-    
+
     if (category) {
         document.getElementById('categoryModalTitle').textContent = 'Editar Categoria';
         document.getElementById('categoryId').value = category._id;
@@ -1714,7 +1933,7 @@ function openCategoryModal(category = null) {
     } else {
         document.getElementById('categoryModalTitle').textContent = 'Nova Categoria';
     }
-    
+
     modal.style.display = 'block';
 }
 
@@ -1724,13 +1943,13 @@ function closeCategoryModal() {
 
 async function saveCategory(event) {
     event.preventDefault();
-    
+
     const categoryId = document.getElementById('categoryId').value;
     const categoryData = {
         name: document.getElementById('categoryName').value,
         description: document.getElementById('categoryDescription').value
     };
-    
+
     try {
         if (categoryId) {
             await apiCall(`/api/categories/${categoryId}`, {
@@ -1745,7 +1964,7 @@ async function saveCategory(event) {
             });
             showNotification('Categoria criada com sucesso!', 'success');
         }
-        
+
         await loadCategories();
         displayCategories();
         updateCategorySelects();
@@ -1768,12 +1987,12 @@ async function deleteCategory(categoryId) {
     if (!confirm('Tem certeza que deseja excluir esta categoria?')) {
         return;
     }
-    
+
     try {
         await apiCall(`/api/categories/${categoryId}`, {
             method: 'DELETE'
         });
-        
+
         await loadCategories();
         displayCategories();
         updateCategorySelects();
@@ -1788,29 +2007,29 @@ async function deleteCategory(categoryId) {
 async function compareMonths() {
     const month1 = document.getElementById('compareMonth1').value;
     const month2 = document.getElementById('compareMonth2').value;
-    
+
     if (!month1 || !month2) {
         alert('Selecione dois meses para comparar');
         return;
     }
-    
+
     // Calculate data for both months
     const data1 = calculateMonthData(month1);
     const data2 = calculateMonthData(month2);
-    
+
     const container = document.getElementById('comparisonResults');
-    
+
     const items = [
         { label: 'Receitas', value1: data1.income, value2: data2.income },
         { label: 'Despesas', value1: data1.expenses, value2: data2.expenses },
         { label: 'Economia', value1: data1.savings, value2: data2.savings }
     ];
-    
+
     container.innerHTML = items.map(item => {
         const diff = item.value2 - item.value1;
         const diffPercent = item.value1 !== 0 ? ((diff / item.value1) * 100).toFixed(1) : 0;
         const isPositive = diff >= 0;
-        
+
         return `
             <div class="comparison-item">
                 <h4>${item.label}</h4>
@@ -1830,11 +2049,11 @@ async function compareMonths() {
 function calculateMonthData(month) {
     const monthIncomes = incomes.filter(i => i.month === month);
     const monthExpenses = transactions.filter(t => t.month === month);
-    
+
     const income = monthIncomes.reduce((sum, i) => sum + (i.amount || 0), 0);
     const expenses = monthExpenses.reduce((sum, t) => sum + (t.expense || 0), 0);
     const savings = income - expenses;
-    
+
     return { income, expenses, savings };
 }
 
@@ -1849,7 +2068,7 @@ function initializeCharts() {
 function createMonthlyTrendChart() {
     const ctx = document.getElementById('monthlyTrendChart');
     if (!ctx) return;
-    
+
     charts.monthlyTrend = new Chart(ctx.getContext('2d'), {
         type: 'line',
         data: {
@@ -1895,42 +2114,17 @@ function createMonthlyTrendChart() {
     });
 }
 
-// Função para gerar cores dinâmicas e únicas
-function generateDynamicColors(count) {
-    const baseColors = [
-        '#4f46e5', '#10b981', '#f59e0b', '#ef4444', // Azul, Verde, Amarelo, Vermelho
-        '#8b5cf6', '#06b6d4', '#ec4899', '#14b8a6', // Roxo, Ciano, Rosa, Verde-água
-        '#f97316', '#84cc16', '#6366f1', '#0ea5e9', // Laranja, Lima, Índigo, Azul claro
-        '#db2777', '#059669', '#d97706', '#dc2626', // Rosa escuro, Verde escuro, Âmbar, Vermelho escuro
-        '#7c3aed', '#0891b2', '#be185d', '#16a34a'  // Violeta, Azul-petróleo, Magenta, Verde medio
-    ];
-    
-    const colors = [];
-    for (let i = 0; i < count; i++) {
-        if (i < baseColors.length) {
-            colors.push(baseColors[i]);
-        } else {
-            // Gerar cores adicionais se necessário
-            const hue = (i * 137.508) % 360; // Golden angle approximation
-            const saturation = 70 + (i % 3) * 10; // Varia saturação
-            const lightness = 50 + (i % 4) * 8;   // Varia luminosidade
-            colors.push(`hsl(${hue}, ${saturation}%, ${lightness}%)`);
-        }
-    }
-    return colors;
-}
-
 function createCategoryPieChart() {
     const ctx = document.getElementById('categoryPieChart');
     if (!ctx) return;
-    
+
     charts.categoryPie = new Chart(ctx.getContext('2d'), {
         type: 'doughnut',
         data: {
             labels: [],
             datasets: [{
                 data: [],
-                backgroundColor: [] // Será preenchido dinamicamente
+                backgroundColor: []
             }]
         },
         options: {
@@ -1938,18 +2132,7 @@ function createCategoryPieChart() {
             maintainAspectRatio: false,
             plugins: {
                 legend: {
-                    position: 'right',
-                    labels: {
-                        usePointStyle: true,
-                        pointStyle: 'circle'
-                    }
-                },
-                tooltip: {
-                    backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                    titleColor: '#fff',
-                    bodyColor: '#fff',
-                    borderColor: 'rgba(255, 255, 255, 0.1)',
-                    borderWidth: 1
+                    position: 'right'
                 }
             }
         }
@@ -1959,7 +2142,7 @@ function createCategoryPieChart() {
 function createAnnualChart() {
     const ctx = document.getElementById('annualChart');
     if (!ctx) return;
-    
+
     charts.annual = new Chart(ctx.getContext('2d'), {
         type: 'bar',
         data: {
@@ -1990,14 +2173,14 @@ function createAnnualChart() {
 function createExpenseDistributionChart() {
     const ctx = document.getElementById('expenseDistributionChart');
     if (!ctx) return;
-    
+
     charts.expenseDistribution = new Chart(ctx.getContext('2d'), {
         type: 'polarArea',
         data: {
             labels: [],
             datasets: [{
                 data: [],
-                backgroundColor: [] // Será preenchido dinamicamente
+                backgroundColor: []
             }]
         },
         options: {
@@ -2005,11 +2188,7 @@ function createExpenseDistributionChart() {
             maintainAspectRatio: false,
             plugins: {
                 legend: {
-                    position: 'right',
-                    labels: {
-                        usePointStyle: true,
-                        pointStyle: 'circle'
-                    }
+                    position: 'right'
                 }
             }
         }
@@ -2025,33 +2204,32 @@ function updateOverviewCharts() {
 
 function updateMonthlyTrendChart() {
     if (!charts.monthlyTrend) return;
-    
-    // Get last 6 months
+
     const months = [];
     const now = new Date();
     for (let i = 5; i >= 0; i--) {
         const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
         months.push(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`);
     }
-    
+
     const incomeData = months.map(month => {
         return incomes
             .filter(i => i.month === month)
             .reduce((sum, i) => sum + (i.amount || 0), 0);
     });
-    
+
     const expenseData = months.map(month => {
         return transactions
             .filter(t => t.month === month)
             .reduce((sum, t) => sum + (t.expense || 0), 0);
     });
-    
+
     const labels = months.map(month => {
         const [year, m] = month.split('-');
         const date = new Date(year, m - 1);
         return date.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
     });
-    
+
     charts.monthlyTrend.data.labels = labels;
     charts.monthlyTrend.data.datasets[0].data = incomeData;
     charts.monthlyTrend.data.datasets[1].data = expenseData;
@@ -2060,103 +2238,38 @@ function updateMonthlyTrendChart() {
 
 function updateCategoryPieChart() {
     if (!charts.categoryPie) return;
-    
+
     const currentMonth = new Date().toISOString().slice(0, 7);
     const monthExpenses = transactions.filter(t => t.month === currentMonth);
-    
+
     const categoryData = {};
     monthExpenses.forEach(t => {
         const category = categories.find(c => c._id === t.category_id);
         const categoryName = category ? category.name : 'Outros';
         categoryData[categoryName] = (categoryData[categoryName] || 0) + (t.expense || 0);
     });
-    
-    // ✅ NOVA LÓGICA: Gerar cores dinâmicas e únicas para cada categoria
-    const categoryNames = Object.keys(categoryData);
-    const backgroundColors = generateDynamicColors(categoryNames.length);
-    
-    // Mapear cada categoria para sua cor única
-    const categoryColors = {};
-    categoryNames.forEach((categoryName, index) => {
-        categoryColors[categoryName] = backgroundColors[index];
-    });
-    
-    // ✅ NOVA: Adicionar indicadores visuais de status via bordas
-    const borderColors = categoryNames.map(categoryName => {
-        const category = categories.find(c => c.name === categoryName);
-        if (!category) return '#6b7280';
-        
-        const budget = budgets.find(b => b.category_id === category._id && b.month === currentMonth);
-        if (!budget) return '#6b7280'; // Cinza para categorias sem orçamento
-        
-        const spent = budget.spent !== undefined ? budget.spent : 
-            monthExpenses.filter(t => t.category_id === category._id)
-                .reduce((sum, t) => sum + (t.expense || 0), 0);
-        
-        const percentage = (spent / budget.amount) * 100;
-        
-        // Cores de borda baseadas no status do orçamento
-        if (percentage >= 100) return '#dc2626'; // Vermelho escuro - excedido
-        if (percentage >= 90) return '#d97706'; // Âmbar - crítico
-        if (percentage >= 70) return '#eab308'; // Amarelo - atenção
-        return '#059669'; // Verde escuro - OK
-    });
-    
+
+    const colors = [
+        '#4f46e5', '#10b981', '#f59e0b', '#ef4444',
+        '#8b5cf6', '#06b6d4', '#ec4899', '#14b8a6'
+    ];
+
     charts.categoryPie.data.labels = Object.keys(categoryData);
     charts.categoryPie.data.datasets[0].data = Object.values(categoryData);
-    charts.categoryPie.data.datasets[0].backgroundColor = backgroundColors;
-    charts.categoryPie.data.datasets[0].borderColor = borderColors;
-    charts.categoryPie.data.datasets[0].borderWidth = 2;
-    
-    // Adicionar tooltips com informações de orçamento
-    charts.categoryPie.options.plugins.tooltip = {
-        callbacks: {
-            label: function(context) {
-                const categoryName = context.label;
-                const amount = context.parsed;
-                const category = categories.find(c => c.name === categoryName);
-                
-                if (!category) {
-                    return `${categoryName}: R$ ${formatCurrency(amount)}`;
-                }
-                
-                const budget = budgets.find(b => b.category_id === category._id && b.month === currentMonth);
-                
-                if (!budget) {
-                    return `${categoryName}: R$ ${formatCurrency(amount)} (Sem orçamento)`;
-                }
-                
-                const spent = budget.spent !== undefined ? budget.spent : amount;
-                const percentage = (spent / budget.amount) * 100;
-                const remaining = budget.amount - spent;
-                
-                return [
-                    `${categoryName}: R$ ${formatCurrency(amount)}`,
-                    `Orçamento: R$ ${formatCurrency(budget.amount)}`,
-                    `Usado: ${percentage.toFixed(1)}%`,
-                    `Restante: R$ ${formatCurrency(remaining)}`
-                ];
-            }
-        }
-    };
-    
-    // ✅ ATUALIZAR O GRÁFICO com as novas cores
-    charts.categoryPie.update();
-
+    charts.categoryPie.data.datasets[0].backgroundColor = colors.slice(0, Object.keys(categoryData).length);
     charts.categoryPie.update();
 }
 
 function updateAnnualChart() {
     if (!charts.annual) return;
-    
-    // Get last 12 months
+
     const months = [];
     const now = new Date();
     for (let i = 11; i >= 0; i--) {
         const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
         months.push(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`);
     }
-    
+
     const savingsData = months.map(month => {
         const income = incomes
             .filter(i => i.month === month)
@@ -2166,13 +2279,13 @@ function updateAnnualChart() {
             .reduce((sum, t) => sum + (t.expense || 0), 0);
         return income - expense;
     });
-    
+
     const labels = months.map(month => {
         const [year, m] = month.split('-');
         const date = new Date(year, m - 1);
         return date.toLocaleDateString('pt-BR', { month: 'short' });
     });
-    
+
     charts.annual.data.labels = labels;
     charts.annual.data.datasets[0].data = savingsData;
     charts.annual.update();
@@ -2180,21 +2293,22 @@ function updateAnnualChart() {
 
 function updateExpenseDistributionChart() {
     if (!charts.expenseDistribution) return;
-    
+
     const categoryData = {};
     transactions.forEach(t => {
         const category = categories.find(c => c._id === t.category_id);
         const categoryName = category ? category.name : 'Outros';
         categoryData[categoryName] = (categoryData[categoryName] || 0) + (t.expense || 0);
     });
-    
-    // ✅ NOVA LÓGICA: Gerar cores dinâmicas para o gráfico de distribuição
-    const categoryNames = Object.keys(categoryData);
-    const backgroundColors = generateDynamicColors(categoryNames.length);
-    
+
+    const colors = [
+        '#4f46e5', '#10b981', '#f59e0b', '#ef4444',
+        '#8b5cf6', '#06b6d4', '#ec4899', '#14b8a6'
+    ];
+
     charts.expenseDistribution.data.labels = Object.keys(categoryData);
     charts.expenseDistribution.data.datasets[0].data = Object.values(categoryData);
-    charts.expenseDistribution.data.datasets[0].backgroundColor = backgroundColors;
+    charts.expenseDistribution.data.datasets[0].backgroundColor = colors.slice(0, Object.keys(categoryData).length);
     charts.expenseDistribution.update();
 }
 
@@ -2202,14 +2316,14 @@ function updateChartsTheme() {
     const isDark = document.body.getAttribute('data-theme') === 'dark';
     const textColor = isDark ? '#f1f5f9' : '#1a202c';
     const gridColor = isDark ? '#334155' : '#e2e8f0';
-    
+
     Object.values(charts).forEach(chart => {
         if (chart && chart.options) {
             if (chart.options.plugins && chart.options.plugins.legend) {
                 chart.options.plugins.legend.labels = chart.options.plugins.legend.labels || {};
                 chart.options.plugins.legend.labels.color = textColor;
             }
-            
+
             if (chart.options.scales) {
                 ['x', 'y'].forEach(axis => {
                     if (chart.options.scales[axis]) {
@@ -2220,7 +2334,7 @@ function updateChartsTheme() {
                     }
                 });
             }
-            
+
             chart.update();
         }
     });
@@ -2244,10 +2358,10 @@ async function exportData(format) {
         const a = document.createElement('a');
         a.style.display = 'none';
         a.href = url;
-        
+
         const date = new Date().toISOString().split('T')[0];
         a.download = `financeiro_${date}.${format === 'excel' ? 'xlsx' : format}`;
-        
+
         document.body.appendChild(a);
         a.click();
         window.URL.revokeObjectURL(url);
@@ -2269,9 +2383,9 @@ function formatCurrency(value) {
 function formatMonth(monthString) {
     const [year, month] = monthString.split('-');
     const date = new Date(year, month - 1);
-    return date.toLocaleDateString('pt-BR', { 
-        year: 'numeric', 
-        month: 'long' 
+    return date.toLocaleDateString('pt-BR', {
+        year: 'numeric',
+        month: 'long'
     });
 }
 
