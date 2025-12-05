@@ -1213,12 +1213,14 @@ tr:last-child td {
 
 .modal-content {
     background-color: var(--bg-card);
-    margin: 5% auto;
+    margin: 2% auto;
     padding: 2rem;
     border: 1px solid var(--border);
     border-radius: 12px;
     width: 90%;
     max-width: 500px;
+    max-height: 90vh;
+    overflow-y: auto;
     box-shadow: var(--shadow-lg);
     position: relative;
     animation: modalSlideIn 0.3s ease;
@@ -1287,6 +1289,12 @@ tr:last-child td {
     .stats-grid {
         grid-template-columns: repeat(2, 1fr);
     }
+
+    .modal-content {
+        margin: 1% auto;
+        max-height: 95vh;
+        width: 95%;
+    }
 }
 
 @media (max-width: 768px) {
@@ -1314,7 +1322,8 @@ tr:last-child td {
     }
 
     .modal-content {
-        margin: 10% auto;
+        margin: 5% auto;
+        max-height: 90vh;
         width: 95%;
         padding: 1.5rem;
     }
