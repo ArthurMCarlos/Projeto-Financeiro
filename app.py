@@ -1,4 +1,5 @@
-from flask import Flask, request, jsonify, send_file, render_template_string
+#!/usr/bin/env python3
+from flask import Flask, request, jsonify, send_file, render_template_string, send_from_directory
 from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
@@ -202,7 +203,187 @@ except ImportError:
     print("⚠️ APScheduler não está disponível. Instale com: pip install APScheduler==3.10.4")
     scheduler = None
 
-# Utility Functions
+# ========================================
+# 🏠 ROTAS PRINCIPAIS (PÁGINAS ESTÁTICAS)
+# ========================================
+
+@app.route('/')
+def home():
+    """Página principal - redireciona para dashboard ou login"""
+    return """
+    <!DOCTYPE html>
+    <html lang="pt-BR">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Sistema de Organização Financeira</title>
+        <style>
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                margin: 0;
+                padding: 0;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                min-height: 100vh;
+                color: white;
+            }
+            .container {
+                text-align: center;
+                background: rgba(255, 255, 255, 0.1);
+                padding: 3rem;
+                border-radius: 20px;
+                backdrop-filter: blur(10px);
+                box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+                max-width: 500px;
+            }
+            h1 {
+                margin-bottom: 1rem;
+                font-size: 2.5rem;
+                font-weight: 700;
+            }
+            p {
+                margin-bottom: 2rem;
+                font-size: 1.2rem;
+                opacity: 0.9;
+            }
+            .btn {
+                display: inline-block;
+                padding: 12px 30px;
+                background: rgba(255, 255, 255, 0.2);
+                color: white;
+                text-decoration: none;
+                border-radius: 50px;
+                font-weight: 600;
+                margin: 0 10px;
+                transition: all 0.3s ease;
+                border: 2px solid rgba(255, 255, 255, 0.3);
+            }
+            .btn:hover {
+                background: rgba(255, 255, 255, 0.3);
+                transform: translateY(-2px);
+                box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+            }
+            .features {
+                margin-top: 2rem;
+                text-align: left;
+            }
+            .feature {
+                margin-bottom: 0.5rem;
+                opacity: 0.8;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>💰 Sistema Financeiro</h1>
+            <p>Gerencie suas finanças de forma inteligente com reset automático de cartões de crédito!</p>
+            
+            <div class="features">
+                <div class="feature">✅ Gestão completa de contas e cartões</div>
+                <div class="feature">🔄 Reset automático de cartões de crédito</div>
+                <div class="feature">📊 Relatórios e análises detalhadas</div>
+                <div class="feature">🎯 Controle de orçamentos e metas</div>
+            </div>
+            
+            <div style="margin-top: 2rem;">
+                <a href="/dashboard.html" class="btn">🚀 Acessar Sistema</a>
+                <a href="/login.html" class="btn">🔑 Fazer Login</a>
+            </div>
+            
+            <div style="margin-top: 2rem; font-size: 0.9rem; opacity: 0.7;">
+                Sistema desenvolvido por MiniMax Agent
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+@app.route('/dashboard.html')
+def dashboard():
+    """Página do dashboard"""
+    try:
+        # Verificar se existe o arquivo dashboard.html
+        dashboard_path = os.path.join(app.static_folder if app.static_folder else '.', 'dashboard.html')
+        if os.path.exists(dashboard_path):
+            return send_from_directory(os.path.dirname(dashboard_path), 'dashboard.html')
+        else:
+            # Fallback: retorna uma página básica
+            return """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Dashboard - Sistema Financeiro</title>
+                <style>
+                    body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
+                    .container { max-width: 800px; margin: 0 auto; }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <h1>💳 Dashboard do Sistema Financeiro</h1>
+                    <p>Configure seus cartões de crédito para reset automático!</p>
+                    <p><strong>Status:</strong> Sistema funcionando normalmente ✅</p>
+                    <p>⚠️ Arquivo dashboard.html não encontrado no servidor.</p>
+                </div>
+            </body>
+            </html>
+            """
+    except Exception as e:
+        return f"Erro ao carregar dashboard: {e}", 500
+
+@app.route('/login.html')
+def login():
+    """Página de login"""
+    try:
+        # Verificar se existe o arquivo login.html
+        login_path = os.path.join(app.static_folder if app.static_folder else '.', 'login.html')
+        if os.path.exists(login_path):
+            return send_from_directory(os.path.dirname(login_path), 'login.html')
+        else:
+            # Fallback: retorna uma página básica
+            return """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Login - Sistema Financeiro</title>
+                <style>
+                    body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
+                    .container { max-width: 400px; margin: 0 auto; }
+                    .form { background: #f5f5f5; padding: 2rem; border-radius: 8px; }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <h1>🔑 Sistema de Login</h1>
+                    <div class="form">
+                        <p>Faça login para acessar o sistema financeiro</p>
+                        <form>
+                            <input type="email" placeholder="Email" style="width: 100%; padding: 10px; margin: 10px 0;" required>
+                            <input type="password" placeholder="Senha" style="width: 100%; padding: 10px; margin: 10px 0;" required>
+                            <button type="submit" style="width: 100%; padding: 12px; background: #007bff; color: white; border: none; border-radius: 4px;">Entrar</button>
+                        </form>
+                    </div>
+                </div>
+            </body>
+            </html>
+            """
+    except Exception as e:
+        return f"Erro ao carregar login: {e}", 500
+
+@app.route('/<path:filename>')
+def static_files(filename):
+    """Servir arquivos estáticos (CSS, JS, etc.)"""
+    try:
+        return send_from_directory('.', filename)
+    except Exception as e:
+        return f"Arquivo não encontrado: {filename}", 404
+
+# ========================================
+# 🔧 UTILITY FUNCTIONS
+# ========================================
+
 def token_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
@@ -247,16 +428,7 @@ def get_current_user_id():
         return None
 
 def calculate_next_billing_date(current_date, billing_cycle_day):
-    """
-    Calcula a próxima data de fechamento da fatura
-    
-    Args:
-        current_date (datetime): Data atual
-        billing_cycle_day (int): Dia do fechamento da fatura (1-31)
-    
-    Returns:
-        datetime: Próxima data de fechamento
-    """
+    """Calcula a próxima data de fechamento da fatura"""
     try:
         # Ajustar dia se for maior que os dias do mês
         last_day = calendar.monthrange(current_date.year, current_date.month)[1]
@@ -286,7 +458,10 @@ def calculate_next_billing_date(current_date, billing_cycle_day):
         else:
             return current_date.replace(month=current_date.month + 1, day=1)
 
-# Credit Card Reset Routes
+# ========================================
+# 💳 CREDIT CARD RESET ROUTES
+# ========================================
+
 @app.route('/api/credit-cards/<account_id>/reset-config', methods=['POST'])
 @token_required
 def configure_credit_card_reset(current_user, account_id):
@@ -555,7 +730,10 @@ def trigger_automatic_resets(current_user):
         print(f"❌ Erro ao executar resets manuais: {e}")
         return jsonify({'message': 'Erro interno do servidor'}), 500
 
-# Health Check
+# ========================================
+# 🏥 HEALTH CHECKS
+# ========================================
+
 @app.route('/api/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
@@ -566,8 +744,75 @@ def health_check():
         'scheduler_active': scheduler is not None and scheduler.running if scheduler else False
     })
 
-# User Routes
-@app.route('/api/login', methods=['POST'])
+# ========================================
+# 👤 AUTH ROUTES (IMPLEMENTAÇÃO BÁSICA)
+# ========================================
+
+@app.route('/api/auth/register', methods=['POST'])
+def register():
+    """Registro de usuário"""
+    data = request.get_json()
+    email = data.get('email')
+    password = data.get('password')
+    name = data.get('name')
+    
+    if not email or not password or not name:
+        return jsonify({'message': 'Nome, email e senha são obrigatórios'}), 400
+    
+    try:
+        if mongodb_connected and users_collection:
+            # Verificar se email já existe
+            if users_collection.find_one({'email': email}):
+                return jsonify({'message': 'Email já cadastrado'}), 400
+            
+            # Criar usuário
+            user_data = {
+                'name': name,
+                'email': email,
+                'password': generate_password_hash(password),
+                'created_at': datetime.utcnow()
+            }
+            
+            result = users_collection.insert_one(user_data)
+            user_id = str(result.inserted_id)
+            
+        else:
+            # Usando armazenamento em memória
+            if any(user.get('email') == email for user in memory_storage['users']):
+                return jsonify({'message': 'Email já cadastrado'}), 400
+            
+            user_id = str(len(memory_storage['users']) + 1)
+            user_data = {
+                '_id': user_id,
+                'name': name,
+                'email': email,
+                'password': generate_password_hash(password),
+                'created_at': datetime.utcnow()
+            }
+            memory_storage['users'].append(user_data)
+        
+        # Gerar token
+        token = jwt.encode({
+            'user_id': user_id,
+            'email': email,
+            'exp': datetime.utcnow() + timedelta(hours=24)
+        }, app.config['SECRET_KEY'], algorithm="HS256")
+        
+        return jsonify({
+            'message': 'Usuário cadastrado com sucesso!',
+            'token': token,
+            'user': {
+                'id': user_id,
+                'name': name,
+                'email': email
+            }
+        })
+        
+    except Exception as e:
+        print(f"❌ Erro no registro: {e}")
+        return jsonify({'message': 'Erro interno do servidor'}), 500
+
+@app.route('/api/auth/login', methods=['POST'])
 def login():
     """Login de usuário"""
     data = request.get_json()
@@ -604,6 +849,10 @@ def login():
         print(f"❌ Erro no login: {e}")
         return jsonify({'message': 'Erro interno do servidor'}), 500
 
+# ========================================
+# 📊 API ROUTES (IMPLEMENTAÇÃO BÁSICA)
+# ========================================
+
 # Account Routes
 @app.route('/api/accounts', methods=['GET'])
 @token_required
@@ -625,12 +874,20 @@ def get_accounts(current_user):
         print(f"❌ Erro ao buscar contas: {e}")
         return jsonify({'message': 'Erro interno do servidor'}), 500
 
-# Run the app
+# ========================================
+# 🚀 APLICAÇÃO PRINCIPAL
+# ========================================
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     
     # Configurar agendador se estiver usando APScheduler
     if 'scheduler' in globals():
         setup_scheduler()
+    
+    print(f"🚀 Servidor iniciando na porta {port}")
+    print(f"🌐 Site disponível em: http://localhost:{port}")
+    print(f"💳 Sistema de reset de cartões: Ativado")
+    print(f"🗄️ MongoDB: {'Conectado' if mongodb_connected else 'Memória'}")
     
     app.run(host='0.0.0.0', port=port, debug=False)
