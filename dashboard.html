@@ -467,7 +467,7 @@
     </div>
 
     <!-- Account Modal -->
-    <div id="accountModal" class="modal">
+    <div id="accountModal" class="modal credit-card-modal">
         <div class="modal-content">
             <span class="close">&times;</span>
             <h2 id="accountModalTitle">Nova Conta</h2>
@@ -475,11 +475,11 @@
                 <input type="hidden" id="accountId">
                 <div class="form-group">
                     <label for="accountName">Nome:</label>
-                    <input type="text" id="accountName" required class="input" placeholder="Ex: Conta Corrente, Poupança">
+                    <input type="text" id="accountName" required class="input" placeholder="Ex: Conta Corrente, Poupança, Cartão Platinum">
                 </div>
                 <div class="form-group">
                     <label for="accountType">Tipo:</label>
-                    <select id="accountType" required class="input">
+                    <select id="accountType" required class="input" onchange="toggleCreditCardFields()">
                         <option value="corrente">Conta Corrente</option>
                         <option value="poupanca">Poupança</option>
                         <option value="cartao">Cartão de Crédito</option>
@@ -490,6 +490,86 @@
                     <label for="accountBalance">Saldo Inicial (R$):</label>
                     <input type="number" id="accountBalance" step="0.01" class="input" value="0">
                 </div>
+                
+                <!-- Credit Card Specific Fields -->
+                <div id="creditCardFields" style="display: none;">
+                    <hr style="margin: 1.5rem 0; border: none; border-top: 1px solid var(--border);">
+                    <h4 style="margin-bottom: 1rem; color: var(--text-primary);">💳 Configuração do Cartão de Crédito</h4>
+                    
+                    <div class="form-group">
+                        <label for="creditLimit">Limite do Cartão (R$):</label>
+                        <input type="number" id="creditLimit" step="0.01" min="0" class="input" placeholder="Ex: 5000.00">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="billingCycleDay">Dia de Fechamento da Fatura:</label>
+                        <select id="billingCycleDay" class="input">
+                            <option value="1">1º dia</option>
+                            <option value="5">5º dia</option>
+                            <option value="7">7º dia</option>
+                            <option value="10">10º dia</option>
+                            <option value="12">12º dia</option>
+                            <option value="15">15º dia</option>
+                            <option value="18">18º dia</option>
+                            <option value="20">20º dia</option>
+                            <option value="22">22º dia</option>
+                            <option value="25">25º dia</option>
+                            <option value="28">28º dia</option>
+                            <option value="30">30º dia</option>
+                        </select>
+                        <small style="color: var(--text-secondary); margin-top: 0.25rem; display: block;">
+                            Escolha o dia que sua fatura fecha mensalmente
+                        </small>
+                    </div>
+                    
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="resetEnabled">
+                        <label for="resetEnabled" style="margin: 0;">
+                            <strong>🔄 Reset Automático</strong>
+                        </label>
+                    </div>
+                    <small style="color: var(--text-secondary); margin-bottom: 1rem; display: block; padding-left: 1.75rem;">
+                        Reseta automaticamente o saldo disponível do cartão a cada fechamento de fatura
+                    </small>
+                    
+                    <!-- Credit Card Info Display -->
+                    <div id="creditCardInfo" style="display: none;">
+                        <div class="credit-card-info">
+                            <h5>💳 Informações do Cartão</h5>
+                            <div class="info-grid">
+                                <div class="info-item">
+                                    <div class="info-label">Limite</div>
+                                    <div class="info-value" id="displayCreditLimit">R$ 0,00</div>
+                                </div>
+                                <div class="info-item">
+                                    <div class="info-label">Utilizado</div>
+                                    <div class="info-value" id="displayCreditUsed">R$ 0,00</div>
+                                </div>
+                                <div class="info-item">
+                                    <div class="info-label">Disponível</div>
+                                    <div class="info-value" id="displayCreditAvailable">R$ 0,00</div>
+                                </div>
+                                <div class="info-item">
+                                    <div class="info-label">Próximo Reset</div>
+                                    <div class="info-value" id="displayNextReset">-</div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="reset-actions">
+                            <button type="button" id="configureResetBtn" class="btn-secondary" style="display: none;">
+                                ⚙️ Configurar Reset
+                            </button>
+                            <button type="button" id="manualResetBtn" class="btn-warning" style="display: none;">
+                                🔄 Reset Manual
+                            </button>
+                            <button type="button" id="viewHistoryBtn" class="btn-secondary">
+                                📋 Histórico
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
                 <div class="form-actions">
                     <button type="submit" class="btn-primary">Salvar</button>
                     <button type="button" class="btn-secondary" onclick="closeAccountModal()">Cancelar</button>
