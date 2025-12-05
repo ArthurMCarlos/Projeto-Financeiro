@@ -39,6 +39,10 @@
                     <span class="nav-icon">🏦</span>
                     <span class="nav-text">Contas</span>
                 </a>
+                <a href="#" class="nav-item" data-page="credit-cards">
+                    <span class="nav-icon">💳</span>
+                    <span class="nav-text">Cartões de Crédito</span>
+                </a>
                 <a href="#" class="nav-item" data-page="goals">
                     <span class="nav-icon">🏆</span>
                     <span class="nav-text">Metas</span>
@@ -315,6 +319,65 @@
                     <div id="accountsList" class="accounts-grid"></div>
                 </div>
 
+                <!-- Credit Cards Page -->
+                <div id="credit-cards-page" class="page">
+                    <div class="page-header">
+                        <h3>💳 Cartões de Crédito</h3>
+                        <div class="header-actions">
+                            <button onclick="creditCardManager.getUpcomingResets()" class="btn-secondary" title="Ver próximos resets">
+                                📅 Próximos Resets
+                            </button>
+                            <button onclick="creditCardManager.getStats()" class="btn-secondary" title="Ver estatísticas">
+                                📊 Estatísticas
+                            </button>
+                            <button id="addCreditCardBtn" class="btn-primary">💳 Novo Cartão</button>
+                        </div>
+                    </div>
+                    
+                    <!-- Banner de Informações -->
+                    <div class="info-banner">
+                        <strong>💳 Reset Automático:</strong> Configure o dia de fechamento da fatura e o sistema irá zerar automaticamente 
+                        o saldo do cartão para o limite definido. Isso ajuda a manter o controle do crédito disponível.
+                    </div>
+                    
+                    <!-- Estatísticas Rápidas -->
+                    <div id="creditCardsQuickStats" class="quick-stats" style="display: none;">
+                        <div class="stat-card">
+                            <div class="stat-icon">💳</div>
+                            <div class="stat-content">
+                                <h4>Total de Cartões</h4>
+                                <p id="totalCreditCards">0</p>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon">💰</div>
+                            <div class="stat-content">
+                                <h4>Limite Total</h4>
+                                <p id="totalCreditLimit">R$ 0,00</p>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon">📊</div>
+                            <div class="stat-content">
+                                <h4>Utilização Média</h4>
+                                <p id="averageUtilization">0%</p>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon">🔄</div>
+                            <div class="stat-content">
+                                <h4>Resets Programados</h4>
+                                <p id="upcomingResets">0</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Lista de Cartões -->
+                    <div id="creditCardsList" class="credit-cards-grid">
+                        <!-- Será preenchido dinamicamente pelo JavaScript -->
+                    </div>
+                </div>
+
                 <!-- Categories Page -->
                 <div id="categories-page" class="page">
                     <div class="page-header">
@@ -549,6 +612,106 @@
                     <button type="button" class="btn-secondary" onclick="closeGoalModal()">Cancelar</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- Credit Card Modal -->
+    <div id="creditCardModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2 id="creditCardModalTitle">💳 Novo Cartão de Crédito</h2>
+            <form id="creditCardForm">
+                <input type="hidden" id="creditCardId">
+                <div class="form-group">
+                    <label for="creditCardName">Nome do Cartão:</label>
+                    <input type="text" id="creditCardName" required class="input" placeholder="Ex: Nubank, Santander, Itaú">
+                </div>
+                <div class="form-group">
+                    <label for="creditCardNumber">Número do Cartão (opcional):</label>
+                    <input type="text" id="creditCardNumber" class="input" placeholder="**** **** **** 1234">
+                </div>
+                <div class="form-group">
+                    <label for="creditCardLimit">💳 Limite de Crédito (R$):</label>
+                    <input type="number" id="creditCardLimit" step="0.01" min="0" required class="input" placeholder="Ex: 5000.00">
+                </div>
+                <div class="form-group">
+                    <label for="creditCardCurrentBalance">💰 Saldo Atual (R$):</label>
+                    <input type="number" id="creditCardCurrentBalance" step="0.01" min="0" class="input" value="0">
+                </div>
+                <div class="form-group">
+                    <label for="creditCardBillClosingDay">📅 Dia de Fechamento:</label>
+                    <select id="creditCardBillClosingDay" class="input" required>
+                        <option value="">Selecione o dia</option>
+                        <option value="1">1º</option>
+                        <option value="2">2</option>
+                        <option value="3">3</option>
+                        <option value="4">4</option>
+                        <option value="5">5</option>
+                        <option value="6">6</option>
+                        <option value="7">7</option>
+                        <option value="8">8</option>
+                        <option value="9">9</option>
+                        <option value="10">10</option>
+                        <option value="11">11</option>
+                        <option value="12">12</option>
+                        <option value="13">13</option>
+                        <option value="14">14</option>
+                        <option value="15">15</option>
+                        <option value="16">16</option>
+                        <option value="17">17</option>
+                        <option value="18">18</option>
+                        <option value="19">19</option>
+                        <option value="20">20</option>
+                        <option value="21">21</option>
+                        <option value="22">22</option>
+                        <option value="23">23</option>
+                        <option value="24">24</option>
+                        <option value="25">25</option>
+                        <option value="26">26</option>
+                        <option value="27">27</option>
+                        <option value="28">28</option>
+                        <option value="29">29</option>
+                        <option value="30">30</option>
+                        <option value="31">31</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="creditCardAutoReset" class="input">
+                        <span>🔄 Reset Automático</span>
+                    </label>
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn-primary">Salvar</button>
+                    <button type="button" class="btn-secondary" onclick="closeCreditCardModal()">Cancelar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Credit Card History Modal -->
+    <div id="creditCardHistoryModal" class="modal">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h3 id="historyModalTitle">📋 Histórico de Resets</h3>
+                <span class="close" onclick="closeCreditCardHistoryModal()">&times;</span>
+            </div>
+            <div id="creditCardHistoryList" class="history-list">
+                <!-- Será preenchido dinamicamente -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Upcoming Resets Modal -->
+    <div id="upcomingResetsModal" class="modal">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h3>📅 Próximos Resets Programados</h3>
+                <span class="close" onclick="closeUpcomingResetsModal()">&times;</span>
+            </div>
+            <div id="upcomingResetsList" class="upcoming-resets-list">
+                <!-- Será preenchido dinamicamente -->
+            </div>
         </div>
     </div>
 
