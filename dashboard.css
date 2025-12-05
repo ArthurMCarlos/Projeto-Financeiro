@@ -548,6 +548,10 @@ tr:last-child td {
     background: var(--danger);
 }
 
+.progress-fill.success {
+    background: var(--success);
+}
+
 .progress-text {
     font-size: 0.875rem;
     color: var(--text-secondary);
@@ -634,6 +638,7 @@ tr:last-child td {
 .account-actions {
     display: flex;
     gap: 0.5rem;
+    flex-wrap: wrap;
 }
 
 .header-actions {
@@ -650,6 +655,10 @@ tr:last-child td {
     margin-bottom: 1.5rem;
     font-size: 0.875rem;
     box-shadow: var(--shadow);
+}
+
+.info-banner.credit-card-info {
+    background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
 }
 
 /* Animações para notificações */
@@ -916,6 +925,14 @@ tr:last-child td {
     margin-top: 1.5rem;
 }
 
+.form-help {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-top: 0.25rem;
+    font-style: italic;
+}
+
 /* Buttons */
 .btn-primary, .btn-secondary, .btn-danger, .btn-icon, .btn-success {
     padding: 0.75rem 1.5rem;
@@ -1056,6 +1073,262 @@ tr:last-child td {
     gap: 0.5rem;
 }
 
+/* =====================================================
+   CREDIT CARD STYLES
+   ===================================================== */
+
+/* Credit Card Notification Banner */
+.credit-card-notification {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    color: white;
+    padding: 1rem 1.5rem;
+    border-radius: 12px;
+    margin: 0 2rem 1.5rem 2rem;
+    box-shadow: var(--shadow-lg);
+    animation: slideIn 0.5s ease;
+}
+
+.credit-card-notification .notification-content {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.credit-card-notification .notification-icon {
+    font-size: 1.5rem;
+}
+
+.credit-card-notification .notification-text {
+    flex: 1;
+    font-weight: 500;
+}
+
+.credit-card-notification .notification-close {
+    background: rgba(255, 255, 255, 0.2);
+    border: none;
+    color: white;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    font-size: 1.25rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s ease;
+}
+
+.credit-card-notification .notification-close:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+
+/* Credit Card Alerts Section */
+.credit-card-alerts {
+    margin-bottom: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.credit-card-alert {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 1rem 1.5rem;
+    border-radius: 10px;
+    font-size: 0.95rem;
+    font-weight: 500;
+    animation: fadeIn 0.3s ease;
+}
+
+.credit-card-alert.warning {
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.15) 0%, rgba(251, 191, 36, 0.15) 100%);
+    border: 1px solid var(--warning);
+    color: var(--warning);
+}
+
+.credit-card-alert.danger {
+    background: linear-gradient(135deg, rgba(239, 68, 68, 0.15) 0%, rgba(248, 113, 113, 0.15) 100%);
+    border: 1px solid var(--danger);
+    color: var(--danger);
+}
+
+.credit-card-alert .alert-icon {
+    font-size: 1.25rem;
+}
+
+.credit-card-alert .alert-message {
+    flex: 1;
+}
+
+/* Credit Card Account Card Specific Styles */
+.account-card.credit-card-account::before {
+    background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+}
+
+.credit-card-badge {
+    font-size: 1.25rem;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.7;
+    }
+}
+
+.account-balance.credit-card-balance {
+    font-size: 1.5rem;
+    color: var(--info);
+}
+
+/* Credit Card Info Display */
+.credit-card-info-display {
+    margin-top: 1rem;
+    padding-top: 1rem;
+    border-top: 1px dashed var(--border);
+}
+
+.credit-limit-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+    font-size: 0.875rem;
+}
+
+.credit-limit-info .label {
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.credit-limit-info .value {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.credit-usage-bar {
+    margin-bottom: 0.75rem;
+}
+
+.credit-usage-bar .progress-bar {
+    height: 10px;
+    border-radius: 5px;
+    margin-bottom: 0.5rem;
+}
+
+.credit-usage-bar .usage-text {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.closing-day-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.875rem;
+    padding: 0.5rem 0.75rem;
+    background: var(--bg-primary);
+    border-radius: 6px;
+    margin-top: 0.5rem;
+}
+
+.closing-day-info .label {
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.closing-day-info .value {
+    color: var(--accent);
+    font-weight: 600;
+}
+
+/* Toast Notifications */
+@keyframes toastIn {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+@keyframes toastOut {
+    from {
+        transform: translateX(0);
+        opacity: 1;
+    }
+    to {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+}
+
+.toast {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem;
+    box-shadow: var(--shadow-lg);
+    animation: toastIn 0.3s ease;
+    min-width: 280px;
+    max-width: 400px;
+}
+
+.toast-success {
+    border-left: 4px solid var(--success);
+}
+
+.toast-error {
+    border-left: 4px solid var(--danger);
+}
+
+.toast-warning {
+    border-left: 4px solid var(--warning);
+}
+
+.toast-info {
+    border-left: 4px solid var(--info);
+}
+
+.toast-content {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.toast-icon {
+    font-size: 1.25rem;
+}
+
+.toast-message {
+    flex: 1;
+    font-size: 0.95rem;
+    color: var(--text-primary);
+}
+
+.toast-close {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 1.25rem;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+    transition: color 0.2s ease;
+}
+
+.toast-close:hover {
+    color: var(--text-primary);
+}
+
 /* Responsive */
 @media (max-width: 1024px) {
     .sidebar {
@@ -1080,6 +1353,10 @@ tr:last-child td {
 
     .stats-grid {
         grid-template-columns: repeat(2, 1fr);
+    }
+
+    .credit-card-notification {
+        margin: 0 1rem 1rem 1rem;
     }
 }
 
@@ -1118,6 +1395,23 @@ tr:last-child td {
     }
 
     .btn-primary, .btn-secondary {
+        width: 100%;
+    }
+
+    .credit-card-notification {
+        margin: 0 0.5rem 1rem 0.5rem;
+        padding: 0.75rem 1rem;
+    }
+
+    .credit-card-notification .notification-content {
+        flex-wrap: wrap;
+    }
+
+    .account-actions {
+        flex-direction: column;
+    }
+
+    .account-actions button {
         width: 100%;
     }
 }
@@ -1251,34 +1545,34 @@ tr:last-child td {
         flex-direction: column;
         align-items: stretch;
     }
-    
+
     .selector-header .input {
         min-width: auto;
         width: 100%;
     }
-    
+
     .overview-account-summary .summary-header {
         flex-direction: column;
         align-items: flex-start;
         gap: 0.5rem;
     }
-    
+
     .overview-stats-grid {
         grid-template-columns: 1fr;
         gap: 0.75rem;
     }
-    
+
     .overview-stat-item {
         padding: 0.75rem;
         gap: 0.75rem;
     }
-    
+
     .overview-stat-item .stat-icon {
         width: 36px;
         height: 36px;
         font-size: 1.25rem;
     }
-    
+
     .overview-stat-item .stat-value {
         font-size: 1rem;
     }
@@ -1394,12 +1688,12 @@ tr:last-child td {
         gap: 0.75rem;
         align-items: flex-start;
     }
-    
+
     .summary-stats {
         grid-template-columns: 1fr;
         gap: 1rem;
     }
-    
+
     .stat-item {
         padding: 0.75rem;
     }
@@ -1411,15 +1705,15 @@ tr:last-child td {
         flex-direction: column;
         gap: 1rem;
     }
-    
+
     .filter-group {
         min-width: 100%;
     }
-    
+
     .filter-search {
         min-width: 100%;
     }
-    
+
     .filter-actions {
         margin-left: 0;
         flex-direction: row;
@@ -1433,17 +1727,17 @@ tr:last-child td {
         padding: 1rem;
         gap: 0.75rem;
     }
-    
+
     .filter-group label {
         font-size: 0.8rem;
     }
-    
+
     .filter-actions {
         flex-direction: column;
         align-items: stretch;
         gap: 0.75rem;
     }
-    
+
     .filter-count {
         text-align: center;
         font-size: 0.8rem;
