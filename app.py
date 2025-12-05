@@ -17,6 +17,10 @@ from reportlab.lib.units import inch
 from reportlab.lib import colors
 import json
 
+# Importações para sistema de cartão de crédito
+from credit_card_manager import CreditCardManager
+from credit_card_routes import credit_card_bp
+
 app = Flask(__name__)
 # Configuration
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
@@ -35,6 +39,7 @@ incomes_collection = None
 budgets_collection = None
 accounts_collection = None
 goals_collection = None
+credit_cards_collection = None  # Nova coleção para cartões de crédito
 
 if MONGODB_URI:
     try:
@@ -48,6 +53,7 @@ if MONGODB_URI:
         budgets_collection = db.budgets
         accounts_collection = db.accounts
         goals_collection = db.goals
+        credit_cards_collection = db.credit_cards  # Nova coleção
         print("✅ Conectado ao MongoDB com sucesso!")
     except Exception as e:
         print(f"❌ Erro ao conectar ao MongoDB: {e}")
@@ -63,8 +69,22 @@ memory_storage = {
     'incomes': [],
     'budgets': [],
     'accounts': [],
-    'goals': []
+    'goals': [],
+    'credit_cards': []  # Novo armazenamento para cartões de crédito
 }
+
+# Inicializar o gerenciador de cartões de crédito
+if MONGODB_URI:
+    credit_card_manager = CreditCardManager(
+        db=db,
+        credit_cards_collection=credit_cards_collection,
+        transactions_collection=transactions_collection
+    )
+else:
+    credit_card_manager = CreditCardManager()
+
+# Registrar blueprint para rotas de cartão de crédito
+app.register_blueprint(credit_card_bp)
 
 # Authentication decorator
 def token_required(f):
@@ -344,6 +364,7 @@ def register():
         }
         
         if db is not None:
+            category_data['_id'] = ObjectId()
             categories_collection.insert_one(category_data)
         else:
             category_data['_id'] = get_next_id()
@@ -501,7 +522,6 @@ def update_category(current_user, category_id):
     return jsonify({'message': 'Categoria atualizada com sucesso'})
 
 @app.route('/api/categories/<category_id>', methods=['DELETE'])
-@app.route('/api/categories/<category_id>', methods=['DELETE'])
 @token_required
 def delete_category(current_user, category_id):
     user_id = str(current_user['_id'])
@@ -646,7 +666,16 @@ def update_transaction(current_user, transaction_id):
 def delete_transaction(current_user, transaction_id):
     user_id = str(current_user['_id'])
     
+    # Para MongoDB, precisa buscar a transação primeiro para obter o account_id
     if db is not None:
+        transaction = transactions_collection.find_one({
+            '_id': ObjectId(transaction_id),
+            'user_id': user_id
+        })
+        
+        if not transaction:
+            return jsonify({'message': 'Transação não encontrada'}), 404
+        
         result = transactions_collection.delete_one({
             '_id': ObjectId(transaction_id),
             'user_id': user_id
@@ -654,6 +683,13 @@ def delete_transaction(current_user, transaction_id):
         
         if result.deleted_count == 0:
             return jsonify({'message': 'Transação não encontrada'}), 404
+        
+        # Atualiza o saldo da conta se a transação tinha uma conta vinculada
+        if transaction.get('account_id'):
+            expense = transaction.get('expense', 0)
+            income = transaction.get('income', 0)
+            net_change = -(income - expense)
+            update_account_balance(user_id, transaction['account_id'], net_change)
     else:
         transaction = next((t for t in memory_storage['transactions'] 
                           if t['_id'] == transaction_id and t['user_id'] == user_id), None)
@@ -670,19 +706,6 @@ def delete_transaction(current_user, transaction_id):
         
         memory_storage['transactions'].remove(transaction)
 
-        # Para MongoDB, precisa buscar a transação primeiro para obter o account_id
-        if db is not None:
-            transaction = transactions_collection.find_one({
-                '_id': ObjectId(transaction_id),
-                'user_id': user_id
-            })
-            
-            if transaction and transaction.get('account_id'):
-                expense = transaction.get('expense', 0)
-                income = transaction.get('income', 0)
-                net_change = -(income - expense)
-                update_account_balance(user_id, transaction['account_id'], net_change)
-    
     return jsonify({'message': 'Transação excluída com sucesso'})
 
 # Incomes Routes
@@ -791,7 +814,16 @@ def update_income(current_user, income_id):
 def delete_income(current_user, income_id):
     user_id = str(current_user['_id'])
     
+    # Para MongoDB, precisa buscar a receita primeiro para obter o account_id
     if db is not None:
+        income = incomes_collection.find_one({
+            '_id': ObjectId(income_id),
+            'user_id': user_id
+        })
+        
+        if not income:
+            return jsonify({'message': 'Receita não encontrada'}), 404
+        
         result = incomes_collection.delete_one({
             '_id': ObjectId(income_id),
             'user_id': user_id
@@ -799,6 +831,10 @@ def delete_income(current_user, income_id):
         
         if result.deleted_count == 0:
             return jsonify({'message': 'Receita não encontrada'}), 404
+        
+        # Atualiza o saldo da conta se a receita tinha uma conta vinculada
+        if income.get('account_id'):
+            update_account_balance(user_id, income['account_id'], -float(income.get('amount', 0)))
     else:
         income = next((i for i in memory_storage['incomes'] 
                       if i['_id'] == income_id and i['user_id'] == user_id), None)
@@ -812,16 +848,6 @@ def delete_income(current_user, income_id):
         
         memory_storage['incomes'].remove(income)
 
-        # Para MongoDB, precisa buscar a receita primeiro para obter o account_id
-        if db is not None:
-            income = incomes_collection.find_one({
-                '_id': ObjectId(income_id),
-                'user_id': user_id
-            })
-            
-            if income and income.get('account_id'):
-                update_account_balance(user_id, income['account_id'], -float(income.get('amount', 0)))
-    
     return jsonify({'message': 'Receita excluída com sucesso'})
 
 # Budgets Routes
@@ -1136,10 +1162,12 @@ def get_stats():
         total_users = users_collection.count_documents({})
         total_transactions = transactions_collection.count_documents({})
         total_categories = categories_collection.count_documents({})
+        total_credit_cards = credit_cards_collection.count_documents({})
     else:
         total_users = len(memory_storage['users'])
         total_transactions = len(memory_storage['transactions'])
         total_categories = len(memory_storage['categories'])
+        total_credit_cards = len(memory_storage['credit_cards'])
     
     return jsonify({
         'status': 'online',
@@ -1147,7 +1175,8 @@ def get_stats():
         'total_users': total_users,
         'total_transactions': total_transactions,
         'total_categories': total_categories,
-        'version': '2.0.0'
+        'total_credit_cards': total_credit_cards,
+        'version': '2.1.0'
     })
 
 # Export Routes
@@ -1313,10 +1342,25 @@ def health_check():
     return jsonify({
         'status': 'healthy',
         'database': 'mongodb' if db is not None else 'memory',
-        'timestamp': datetime.utcnow().isoformat()
+        'timestamp': datetime.utcnow().isoformat(),
+        'credit_card_scheduler': 'active' if hasattr(credit_card_manager, 'scheduler_running') and credit_card_manager.scheduler_running else 'inactive'
     })
+
+# Inicializar o scheduler de cartões de crédito
+def start_credit_card_scheduler():
+    """Inicializa o scheduler de reset automático de cartões de crédito"""
+    try:
+        if hasattr(credit_card_manager, 'start_scheduler'):
+            credit_card_manager.start_scheduler()
+            print("🔄 Scheduler de cartões de crédito iniciado com sucesso!")
+        else:
+            print("⚠️ CreditCardManager não possui método start_scheduler")
+    except Exception as e:
+        print(f"❌ Erro ao iniciar scheduler de cartões de crédito: {e}")
+
+# Iniciar o scheduler quando a aplicação for executada
+start_credit_card_scheduler()
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
-
