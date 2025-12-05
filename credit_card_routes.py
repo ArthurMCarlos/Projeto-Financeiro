@@ -388,7 +388,7 @@ def get_credit_card_stats():
         
         stats = {
             'total_cards': len(credit_cards),
-            '': sum(1cards_with_auto_reset for card in credit_cards if card.get('auto_reset', False)),
+            'auto_reset_cards_count': len([card for card in credit_cards if card.get('auto_reset', False)]),
             'total_credit_limit': sum(card.get('credit_limit', 0) for card in credit_cards),
             'total_current_balance': sum(card.get('balance', 0) for card in credit_cards),
             'total_available_credit': sum(
