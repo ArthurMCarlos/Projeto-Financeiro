@@ -71,6 +71,15 @@
                 </div>
             </header>
 
+            <!-- Notificação de Reset de Cartão -->
+            <div id="creditCardResetNotification" class="credit-card-notification" style="display: none;">
+                <div class="notification-content">
+                    <span class="notification-icon">💳</span>
+                    <span class="notification-text"></span>
+                    <button class="notification-close" onclick="closeCreditCardNotification()">&times;</button>
+                </div>
+            </div>
+
             <!-- Page Content -->
             <div class="page-content">
                 <!-- Overview Page -->
@@ -122,6 +131,9 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- Alerta de Cartões de Crédito -->
+                    <div id="creditCardAlerts" class="credit-card-alerts" style="display: none;"></div>
 
                     <section class="stats-grid">
                         <div class="stat-card">
@@ -177,7 +189,7 @@
                         <h3>Gerenciar Receitas</h3>
                         <button id="addIncomeBtn" class="btn-primary">+ Nova Receita</button>
                     </div>
-                    
+
                     <!-- Seletor de Conta Prioritário -->
                     <div class="account-selector">
                         <label for="selectedAccount">Conta para visualizar:</label>
@@ -185,7 +197,7 @@
                             <option value="">Todas as contas</option>
                         </select>
                     </div>
-                    
+
                     <!-- Resumo da Conta Selecionada -->
                     <div id="accountSummary" class="account-summary" style="display: none;">
                         <div class="summary-card">
@@ -213,7 +225,7 @@
                             </div>
                         </div>
                     </div>
-                    
+
                     <div class="filters">
                         <input type="month" id="incomeMonthFilter" class="input">
                         <select id="incomeAccountFilter" class="input">
@@ -309,8 +321,12 @@
                         </div>
                     </div>
                     <div class="info-banner">
-                        <strong>💡 Saldos Automáticos:</strong> Os saldos das contas são calculados automaticamente quando você adiciona receitas e despesas. 
+                        <strong>💡 Saldos Automáticos:</strong> Os saldos das contas são calculados automaticamente quando você adiciona receitas e despesas.
                         Receitas aumentam o saldo e despesas diminuem. Use o botão "Recalcular Saldos" se necessário.
+                    </div>
+                    <div class="info-banner credit-card-info">
+                        <strong>💳 Cartões de Crédito:</strong> Os cartões de crédito têm seu limite restaurado automaticamente no dia de fechamento da fatura definido.
+                        Você também pode resetar manualmente usando o botão "Resetar Limite".
                     </div>
                     <div id="accountsList" class="accounts-grid"></div>
                 </div>
@@ -322,7 +338,7 @@
                         <button id="addCategoryBtn" class="btn-primary">+ Nova Categoria</button>
                     </div>
                     <div class="info-banner">
-                        <strong>💡 Categorias:</strong> Gerencie as categorias para organizar suas despesas e orçamentos. 
+                        <strong>💡 Categorias:</strong> Gerencie as categorias para organizar suas despesas e orçamentos.
                         Você pode criar, editar e remover categorias conforme sua necessidade.
                     </div>
                     <div id="categoriesList" class="categories-grid"></div>
@@ -346,7 +362,7 @@
                             <button onclick="exportData('excel')" class="btn-secondary">Exportar Excel</button>
                         </div>
                     </div>
-                    
+
                     <section class="comparison-section">
                         <h3>Comparação Mês a Mês</h3>
                         <div class="comparison-filters">
@@ -479,17 +495,36 @@
                 </div>
                 <div class="form-group">
                     <label for="accountType">Tipo:</label>
-                    <select id="accountType" required class="input">
+                    <select id="accountType" required class="input" onchange="toggleCreditCardFields()">
                         <option value="corrente">Conta Corrente</option>
                         <option value="poupanca">Poupança</option>
                         <option value="cartao">Cartão de Crédito</option>
                         <option value="investimento">Investimento</option>
                     </select>
                 </div>
-                <div class="form-group">
+
+                <!-- Campos específicos para Cartão de Crédito -->
+                <div id="creditCardFields" style="display: none;">
+                    <div class="form-group">
+                        <label for="accountCreditLimit">Limite do Cartão (R$):</label>
+                        <input type="number" id="accountCreditLimit" step="0.01" min="0" class="input" placeholder="Ex: 5000.00">
+                        <small class="form-help">O saldo disponível será igual ao limite definido</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="accountClosingDay">Dia de Fechamento da Fatura:</label>
+                        <select id="accountClosingDay" class="input">
+                            <!-- Dias 1-31 serão preenchidos via JavaScript -->
+                        </select>
+                        <small class="form-help">No dia de fechamento, o limite será restaurado automaticamente</small>
+                    </div>
+                </div>
+
+                <!-- Campo de saldo (apenas para contas não-cartão) -->
+                <div id="balanceField" class="form-group">
                     <label for="accountBalance">Saldo Inicial (R$):</label>
                     <input type="number" id="accountBalance" step="0.01" class="input" value="0">
                 </div>
+
                 <div class="form-actions">
                     <button type="submit" class="btn-primary">Salvar</button>
                     <button type="button" class="btn-secondary" onclick="closeAccountModal()">Cancelar</button>
