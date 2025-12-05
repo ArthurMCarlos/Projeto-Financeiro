@@ -1460,7 +1460,7 @@ function openAccountModal(account = null) {
         document.getElementById('accountId').value = account._id;
         document.getElementById('accountName').value = account.name;
         document.getElementById('accountType').value = account.type;
-        document.getElementById('accountBalance').value = account.balance || 0;
+        document.getElementById('accountBalance').value = account.balance ? parseFloat(account.balance.toFixed(2)) : 0;
     } else {
         document.getElementById('accountModalTitle').textContent = 'Nova Conta';
     }
