@@ -16,6 +16,8 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.lib import colors
 import json
+import calendar
+import atexit
 
 app = Flask(__name__)
 # Configuration
@@ -234,6 +236,254 @@ def recalculate_account_balance(user_id, account_id):
                 
     except Exception as e:
         print(f"Erro ao recalcular saldo da conta {account_id}: {e}")
+
+# Credit Card Reset Functions
+def calculate_next_billing_date(current_date, billing_cycle_day):
+    """
+    Calcula a próxima data de fechamento da fatura
+    
+    Args:
+        current_date (datetime): Data atual
+        billing_cycle_day (int): Dia do fechamento da fatura (1-31)
+    
+    Returns:
+        datetime: Próxima data de fechamento
+    """
+    # Ajustar dia se for maior que os dias do mês
+    last_day = calendar.monthrange(current_date.year, current_date.month)[1]
+    adjusted_day = min(billing_cycle_day, last_day)
+    
+    # Próxima data de fechamento deste mês
+    if current_date.day <= adjusted_day:
+        next_date = current_date.replace(day=adjusted_day)
+    else:
+        # Próximo mês
+        if current_date.month == 12:
+            next_date = current_date.replace(year=current_date.year + 1, month=1, day=1)
+        else:
+            next_date = current_date.replace(month=current_date.month + 1, day=1)
+        
+        # Ajustar dia se necessário
+        last_day_next = calendar.monthrange(next_date.year, next_date.month)[1]
+        adjusted_day = min(billing_cycle_day, last_day_next)
+        next_date = next_date.replace(day=adjusted_day)
+    
+    return next_date
+
+def execute_credit_card_reset(user_id, account_id, reason="Reset automático"):
+    """
+    Executa o reset automático do saldo do cartão de crédito
+    
+    Args:
+        user_id (str): ID do usuário
+        account_id (str): ID da conta
+        reason (str): Motivo do reset
+    
+    Returns:
+        dict: Resultado da operação
+    """
+    try:
+        if db is not None:
+            # Buscar conta
+            account = accounts_collection.find_one({
+                '_id': ObjectId(account_id), 
+                'user_id': user_id
+            })
+            
+            if not account:
+                return {'success': False, 'message': 'Conta não encontrada'}
+            
+            # Verificar se é um cartão de crédito
+            if account.get('type') != 'cartao':
+                return {'success': False, 'message': 'Conta não é um cartão de crédito'}
+            
+            # Verificar se reset automático está habilitado
+            if not account.get('reset_enabled', False):
+                return {'success': False, 'message': 'Reset automático não está habilitado'}
+            
+            # Calcular próximo reset
+            credit_limit = float(account.get('credit_limit', 0))
+            current_balance = float(account.get('balance', 0))
+            billing_day = int(account.get('billing_cycle_day', 1))
+            
+            # Executar reset (definir saldo como limite do cartão)
+            new_balance = credit_limit - current_balance  # Valor disponível após reset
+            
+            # Registrar transação de reset
+            reset_transaction = {
+                'month': datetime.utcnow().strftime('%Y-%m'),
+                'reason': f'Reset automático - {reason}',
+                'expense': 0,
+                'income': 0,
+                'current_value': new_balance,
+                'category_id': None,  # Sistema interno
+                'account_id': account_id,
+                'user_id': user_id,
+                'is_reset_transaction': True,
+                'created_at': datetime.utcnow()
+            }
+            
+            # Atualizar conta
+            next_reset_date = calculate_next_billing_date(
+                datetime.utcnow(), 
+                billing_day
+            )
+            
+            accounts_collection.update_one(
+                {'_id': ObjectId(account_id), 'user_id': user_id},
+                {
+                    '$set': {
+                        'balance': new_balance,
+                        'last_reset_date': datetime.utcnow(),
+                        'next_reset_date': next_reset_date,
+                        'updated_at': datetime.utcnow()
+                    },
+                    '$push': {
+                        'reset_history': {
+                            'date': datetime.utcnow(),
+                            'previous_balance': current_balance,
+                            'new_balance': new_balance,
+                            'reason': reason
+                        }
+                    }
+                }
+            )
+            
+            # Adicionar transação de reset
+            transactions_collection.insert_one(reset_transaction)
+            
+            return {
+                'success': True, 
+                'message': 'Reset executado com sucesso',
+                'previous_balance': current_balance,
+                'new_balance': new_balance,
+                'credit_utilized': new_balance
+            }
+        
+        else:
+            # Para memória local
+            account = next((a for a in memory_storage['accounts'] 
+                           if a['_id'] == account_id and a['user_id'] == user_id), None)
+            
+            if not account or account.get('type') != 'cartao':
+                return {'success': False, 'message': 'Conta não encontrada ou não é cartão'}
+            
+            if not account.get('reset_enabled', False):
+                return {'success': False, 'message': 'Reset automático não habilitado'}
+            
+            credit_limit = float(account.get('credit_limit', 0))
+            current_balance = float(account.get('balance', 0))
+            billing_day = int(account.get('billing_cycle_day', 1))
+            
+            new_balance = credit_limit - current_balance
+            
+            # Registrar reset
+            account['balance'] = new_balance
+            account['last_reset_date'] = datetime.utcnow()
+            account['next_reset_date'] = calculate_next_billing_date(datetime.utcnow(), billing_day)
+            account['updated_at'] = datetime.utcnow()
+            
+            if 'reset_history' not in account:
+                account['reset_history'] = []
+            
+            account['reset_history'].append({
+                'date': datetime.utcnow(),
+                'previous_balance': current_balance,
+                'new_balance': new_balance,
+                'reason': reason
+            })
+            
+            # Adicionar transação
+            reset_transaction = {
+                '_id': get_next_id(),
+                'month': datetime.utcnow().strftime('%Y-%m'),
+                'reason': f'Reset automático - {reason}',
+                'expense': 0,
+                'income': 0,
+                'current_value': new_balance,
+                'category_id': None,
+                'account_id': account_id,
+                'user_id': user_id,
+                'is_reset_transaction': True,
+                'created_at': datetime.utcnow()
+            }
+            memory_storage['transactions'].append(reset_transaction)
+            
+            return {
+                'success': True, 
+                'message': 'Reset executado com sucesso',
+                'previous_balance': current_balance,
+                'new_balance': new_balance,
+                'credit_utilized': new_balance
+            }
+            
+    except Exception as e:
+        print(f"Erro ao executar reset do cartão {account_id}: {e}")
+        return {'success': False, 'message': f'Erro ao executar reset: {str(e)}'}
+
+def check_and_execute_automatic_resets():
+    """
+    Verifica e executa resets automáticos para todos os cartões
+    Deve ser chamada periodicamente (ex: diariamente)
+    """
+    try:
+        print("🔄 Verificando resets automáticos de cartões...")
+        
+        if db is not None:
+            # Buscar cartões com reset automático habilitado
+            credit_cards = list(accounts_collection.find({
+                'type': 'cartao',
+                'reset_enabled': True,
+                'next_reset_date': {'$lte': datetime.utcnow()}
+            }))
+            
+            reset_count = 0
+            for card in credit_cards:
+                user_id = card['user_id']
+                account_id = str(card['_id'])
+                
+                result = execute_credit_card_reset(
+                    user_id, 
+                    account_id, 
+                    "Vencimento da fatura"
+                )
+                
+                if result['success']:
+                    reset_count += 1
+                    print(f"✅ Reset executado para cartão {card['name']} (ID: {account_id})")
+                else:
+                    print(f"❌ Erro no reset do cartão {card['name']}: {result['message']}")
+            
+            print(f"🎯 Resets executados: {reset_count}")
+            return {'success': True, 'reset_count': reset_count}
+        
+        else:
+            # Para memória local
+            reset_count = 0
+            for account in memory_storage['accounts']:
+                if (account.get('type') == 'cartao' and 
+                    account.get('reset_enabled', False) and
+                    account.get('next_reset_date') and 
+                    account['next_reset_date'] <= datetime.utcnow()):
+                    
+                    user_id = account['user_id']
+                    account_id = account['_id']
+                    
+                    result = execute_credit_card_reset(
+                        user_id, 
+                        account_id, 
+                        "Vencimento da fatura"
+                    )
+                    
+                    if result['success']:
+                        reset_count += 1
+                        print(f"✅ Reset executado para cartão {account['name']} (ID: {account_id})")
+            
+            return {'success': True, 'reset_count': reset_count}
+            
+    except Exception as e:
+        print(f"Erro ao verificar resets automáticos: {e}")
+        return {'success': False, 'message': str(e)}
 
 # Routes
 @app.route('/')
@@ -957,6 +1207,23 @@ def create_account(current_user):
         'created_at': datetime.utcnow()
     }
     
+    # Adicionar campos específicos para cartão de crédito
+    if data.get('type') == 'cartao':
+        account_data.update({
+            'credit_limit': float(data.get('credit_limit', 0)),
+            'billing_cycle_day': int(data.get('billing_cycle_day', 1)),
+            'reset_enabled': bool(data.get('reset_enabled', False)),
+            'reset_history': []
+        })
+        
+        # Calcular próxima data de reset se reset automático estiver habilitado
+        if account_data['reset_enabled']:
+            next_reset_date = calculate_next_billing_date(
+                datetime.utcnow(), 
+                account_data['billing_cycle_day']
+            )
+            account_data['next_reset_date'] = next_reset_date
+    
     if db is not None:
         result = accounts_collection.insert_one(account_data)
         account_id = str(result.inserted_id)
@@ -1025,6 +1292,249 @@ def delete_account(current_user, account_id):
         memory_storage['accounts'].remove(account)
     
     return jsonify({'message': 'Conta excluída com sucesso'})
+
+# Credit Card Reset Routes
+@app.route('/api/credit-cards/<account_id>/reset-config', methods=['POST'])
+@token_required
+def configure_credit_card_reset(current_user, account_id):
+    data = request.get_json()
+    user_id = str(current_user['_id'])
+    
+    # Campos obrigatórios para reset automático
+    required_fields = ['credit_limit', 'billing_cycle_day', 'reset_enabled']
+    if not data or not all(k in data for k in required_fields):
+        return jsonify({'message': 'Dados incompletos para configuração do reset'}), 400
+    
+    try:
+        # Validar dia do fechamento (1-31)
+        billing_day = int(data['billing_cycle_day'])
+        if billing_day < 1 or billing_day > 31:
+            return jsonify({'message': 'Dia de fechamento deve estar entre 1 e 31'}), 400
+        
+        # Validar limite do cartão
+        credit_limit = float(data['credit_limit'])
+        if credit_limit <= 0:
+            return jsonify({'message': 'Limite do cartão deve ser maior que zero'}), 400
+        
+        # Calcular próxima data de reset
+        current_date = datetime.utcnow()
+        next_reset_date = calculate_next_billing_date(current_date, billing_day)
+        
+        update_data = {
+            'credit_limit': credit_limit,
+            'billing_cycle_day': billing_day,
+            'reset_enabled': bool(data['reset_enabled']),
+            'next_reset_date': next_reset_date,
+            'updated_at': datetime.utcnow()
+        }
+        
+        # Para memória local, verificar se conta existe
+        if db is not None:
+            # Verificar se a conta existe e é do usuário
+            account = accounts_collection.find_one({
+                '_id': ObjectId(account_id), 
+                'user_id': user_id
+            })
+            
+            if not account:
+                return jsonify({'message': 'Conta não encontrada'}), 404
+            
+            # Verificar se é um cartão de crédito
+            if account.get('type') != 'cartao':
+                return jsonify({'message': 'Conta não é um cartão de crédito'}), 400
+            
+            result = accounts_collection.update_one(
+                {'_id': ObjectId(account_id), 'user_id': user_id},
+                {'$set': update_data}
+            )
+            
+            if result.matched_count == 0:
+                return jsonify({'message': 'Conta não encontrada'}), 404
+                
+        else:
+            # Para memória local
+            account = next((a for a in memory_storage['accounts'] 
+                           if a['_id'] == account_id and a['user_id'] == user_id), None)
+            
+            if not account:
+                return jsonify({'message': 'Conta não encontrada'}), 404
+            
+            if account.get('type') != 'cartao':
+                return jsonify({'message': 'Conta não é um cartão de crédito'}), 400
+            
+            account.update(update_data)
+        
+        return jsonify({
+            'message': 'Configuração de reset atualizada com sucesso',
+            'next_reset_date': next_reset_date.isoformat()
+        })
+        
+    except ValueError:
+        return jsonify({'message': 'Valores inválidos fornecidos'}), 400
+    except Exception as e:
+        print(f"Erro ao configurar reset do cartão {account_id}: {e}")
+        return jsonify({'message': 'Erro interno do servidor'}), 500
+
+@app.route('/api/credit-cards/<account_id>/manual-reset', methods=['POST'])
+@token_required
+def manual_reset_credit_card(current_user, account_id):
+    user_id = str(current_user['_id'])
+    
+    try:
+        result = execute_credit_card_reset(user_id, account_id, "Reset manual")
+        
+        if result['success']:
+            return jsonify({
+                'message': 'Reset manual executado com sucesso',
+                'data': result
+            })
+        else:
+            return jsonify({'message': result['message']}), 400
+            
+    except Exception as e:
+        print(f"Erro ao executar reset manual do cartão {account_id}: {e}")
+        return jsonify({'message': 'Erro interno do servidor'}), 500
+
+@app.route('/api/credit-cards/<account_id>/reset-history', methods=['GET'])
+@token_required
+def get_credit_card_reset_history(current_user, account_id):
+    user_id = str(current_user['_id'])
+    
+    try:
+        if db is not None:
+            account = accounts_collection.find_one({
+                '_id': ObjectId(account_id), 
+                'user_id': user_id
+            })
+            
+            if not account:
+                return jsonify({'message': 'Conta não encontrada'}), 404
+            
+            if account.get('type') != 'cartao':
+                return jsonify({'message': 'Conta não é um cartão de crédito'}), 400
+            
+            reset_history = account.get('reset_history', [])
+            last_reset = account.get('last_reset_date')
+            next_reset = account.get('next_reset_date')
+            
+            # Preparar dados de resposta
+            response_data = {
+                'reset_history': serialize_doc(reset_history),
+                'credit_limit': account.get('credit_limit', 0),
+                'billing_cycle_day': account.get('billing_cycle_day', 1),
+                'reset_enabled': account.get('reset_enabled', False),
+                'last_reset_date': last_reset.isoformat() if last_reset else None,
+                'next_reset_date': next_reset.isoformat() if next_reset else None,
+                'current_balance': account.get('balance', 0),
+                'credit_utilized': account.get('credit_limit', 0) - account.get('balance', 0)
+            }
+            
+        else:
+            # Para memória local
+            account = next((a for a in memory_storage['accounts'] 
+                           if a['_id'] == account_id and a['user_id'] == user_id), None)
+            
+            if not account:
+                return jsonify({'message': 'Conta não encontrada'}), 404
+            
+            if account.get('type') != 'cartao':
+                return jsonify({'message': 'Conta não é um cartão de crédito'}), 400
+            
+            reset_history = account.get('reset_history', [])
+            last_reset = account.get('last_reset_date')
+            next_reset = account.get('next_reset_date')
+            
+            response_data = {
+                'reset_history': serialize_doc(reset_history),
+                'credit_limit': account.get('credit_limit', 0),
+                'billing_cycle_day': account.get('billing_cycle_day', 1),
+                'reset_enabled': account.get('reset_enabled', False),
+                'last_reset_date': last_reset.isoformat() if last_reset else None,
+                'next_reset_date': next_reset.isoformat() if next_reset else None,
+                'current_balance': account.get('balance', 0),
+                'credit_utilized': account.get('credit_limit', 0) - account.get('balance', 0)
+            }
+        
+        return jsonify(response_data)
+        
+    except Exception as e:
+        print(f"Erro ao buscar histórico de reset do cartão {account_id}: {e}")
+        return jsonify({'message': 'Erro interno do servidor'}), 500
+
+@app.route('/api/credit-cards/status-check', methods=['GET'])
+@token_required
+def check_credit_card_status(current_user):
+    """Endpoint para verificar status de todos os cartões do usuário"""
+    user_id = str(current_user['_id'])
+    
+    try:
+        if db is not None:
+            credit_cards = list(accounts_collection.find({
+                'user_id': user_id,
+                'type': 'cartao'
+            }))
+        else:
+            credit_cards = [a for a in memory_storage['accounts'] 
+                           if a['user_id'] == user_id and a.get('type') == 'cartao']
+        
+        status_data = []
+        current_date = datetime.utcnow()
+        
+        for card in credit_cards:
+            credit_limit = float(card.get('credit_limit', 0))
+            current_balance = float(card.get('balance', 0))
+            credit_utilized = credit_limit - current_balance
+            
+            next_reset = card.get('next_reset_date')
+            days_until_reset = None
+            if next_reset:
+                if isinstance(next_reset, str):
+                    next_reset = datetime.fromisoformat(next_reset)
+                days_until_reset = (next_reset - current_date).days
+            
+            status_data.append({
+                'account_id': str(card['_id']),
+                'name': card['name'],
+                'credit_limit': credit_limit,
+                'current_balance': current_balance,
+                'credit_utilized': credit_utilized,
+                'utilization_percentage': (credit_utilized / credit_limit * 100) if credit_limit > 0 else 0,
+                'reset_enabled': card.get('reset_enabled', False),
+                'last_reset_date': card.get('last_reset_date').isoformat() if card.get('last_reset_date') else None,
+                'next_reset_date': next_reset.isoformat() if next_reset else None,
+                'days_until_reset': days_until_reset,
+                'billing_cycle_day': card.get('billing_cycle_day', 1)
+            })
+        
+        return jsonify({
+            'credit_cards': status_data,
+            'total_cards': len(status_data),
+            'auto_reset_enabled': len([c for c in status_data if c['reset_enabled']])
+        })
+        
+    except Exception as e:
+        print(f"Erro ao verificar status dos cartões: {e}")
+        return jsonify({'message': 'Erro interno do servidor'}), 500
+
+@app.route('/api/admin/trigger-automatic-resets', methods=['POST'])
+@token_required
+def trigger_automatic_resets(current_user):
+    """Endpoint para acionar manualmente a verificação e execução de resets automáticos"""
+    try:
+        # Verificar se é administrador (opcional - pode ser removido se não houver sistema de admin)
+        result = check_and_execute_automatic_resets()
+        
+        if result['success']:
+            return jsonify({
+                'message': f'Resets verificados. {result.get("reset_count", 0)} resets executados.',
+                'result': result
+            })
+        else:
+            return jsonify({'message': result['message']}), 500
+            
+    except Exception as e:
+        print(f"Erro ao acionar resets automáticos: {e}")
+        return jsonify({'message': 'Erro interno do servidor'}), 500
 
 # Goals Routes
 @app.route('/api/goals', methods=['GET'])
@@ -1316,7 +1826,45 @@ def health_check():
         'timestamp': datetime.utcnow().isoformat()
     })
 
+# Scheduler for automatic resets
+def setup_scheduler():
+    """Configura o agendador para executar resets automáticos"""
+    try:
+        from apscheduler.schedulers.background import BackgroundScheduler
+        from apscheduler.triggers.cron import CronTrigger
+        
+        # Criar agendador
+        scheduler = BackgroundScheduler()
+        
+        # Adicionar job para verificar resets diários às 01:00
+        scheduler.add_job(
+            check_and_execute_automatic_resets,
+            trigger=CronTrigger(hour=1, minute=0),  # Todo dia às 01:00
+            id='daily_credit_card_resets',
+            name='Verificação e execução de resets automáticos de cartões',
+            replace_existing=True,
+            max_instances=1
+        )
+        
+        # Iniciar agendador
+        scheduler.start()
+        
+        # Agendar shutdown
+        atexit.register(lambda: scheduler.shutdown())
+        
+        print("✅ Agendador de resets automáticos configurado (execução diária às 01:00)")
+        
+    except ImportError:
+        print("⚠️ APScheduler não disponível. Resets automáticos não serão agendados.")
+        print("   Para ativar, instale: pip install APScheduler==3.10.4")
+    except Exception as e:
+        print(f"❌ Erro ao configurar agendador: {e}")
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
+    
+    # Configurar agendador se estiver usando APScheduler
+    setup_scheduler()
+    
     app.run(host='0.0.0.0', port=port, debug=False)
 
