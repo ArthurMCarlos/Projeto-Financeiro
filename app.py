@@ -79,7 +79,6 @@ class MongoDBConnectionManager:
                 retryWrites=True,
                 retryReads=True,
                 heartbeatFrequencyMS=5000,
-                serverMonitoringMode='stream',
                 tls=True
             )
             
