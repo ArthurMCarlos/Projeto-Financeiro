@@ -11,6 +11,110 @@ let charts = {};
 // API Base URL
 const API_BASE = "https://projeto-financeiro-c8sb.onrender.com";
 
+// =====================================================
+// KEEP-ALIVE MANAGER
+// Mantém a conexão ativa com o servidor e banco de dados
+// =====================================================
+
+class KeepAliveManager {
+    constructor() {
+        this.pingInterval = 5 * 60 * 1000; // 5 minutos
+        this.healthEndpoint = '/health';
+        this.isRunning = false;
+        this.timerId = null;
+        this.retryCount = 0;
+        this.maxRetries = 3;
+        this.retryDelay = 30000; // 30 segundos entre tentativas
+    }
+
+    // Inicia o keep-alive
+    start() {
+        if (this.isRunning) {
+            console.log('KeepAlive já está ativo');
+            return;
+        }
+
+        console.log('🔄 Iniciando KeepAlive Manager...');
+        this.isRunning = true;
+        this.retryCount = 0;
+
+        // Faz uma requisição imediata
+        this.ping();
+
+        // Configura o intervalo para requisições periódicas
+        this.timerId = setInterval(() => {
+            this.ping();
+        }, this.pingInterval);
+
+        console.log(`✅ KeepAlive ativo - ping a cada ${this.pingInterval / 60000} minutos`);
+    }
+
+    // Para o keep-alive
+    stop() {
+        if (!this.isRunning) {
+            return;
+        }
+
+        console.log('⏹️ Parando KeepAlive Manager...');
+        this.isRunning = false;
+
+        if (this.timerId) {
+            clearInterval(this.timerId);
+            this.timerId = null;
+        }
+    }
+
+    // Faz uma requisição de health check
+    async ping() {
+        try {
+            const token = localStorage.getItem('token');
+
+            const response = await fetch(`${API_BASE}${this.healthEndpoint}`, {
+                method: 'GET',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token || ''}`
+                }
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                this.retryCount = 0; // Reset retry count on success
+                console.log(`💓 KeepAlive: ${data.message || 'Servidor ativo'} - ${new Date().toLocaleTimeString('pt-BR')}`);
+            } else if (response.status === 401) {
+                // Token expirado, mas o servidor está ativo
+                console.log('💓 KeepAlive: Servidor ativo (token expirado)');
+                this.retryCount = 0;
+            } else {
+                console.warn('⚠️ KeepAlive: Resposta inesperada do servidor');
+                this.handleError();
+            }
+        } catch (error) {
+            console.error('❌ KeepAlive: Erro ao fazer ping', error.message);
+            this.handleError();
+        }
+    }
+
+    // Lida com erros de conexão
+    handleError() {
+        this.retryCount++;
+
+        if (this.retryCount <= this.maxRetries) {
+            console.log(`🔄 KeepAlive: Tentativa ${this.retryCount}/${this.maxRetries} - tentando novamente em ${this.retryDelay / 1000}s...`);
+
+            setTimeout(() => {
+                this.ping();
+            }, this.retryDelay);
+        } else {
+            console.error('❌ KeepAlive: Número máximo de tentativas atingido. O serviço pode estar indisponível.');
+            this.retryCount = 0; // Reset para tentar novamente no próximo intervalo
+        }
+    }
+}
+
+// Instância global do KeepAliveManager
+const keepAliveManager = new KeepAliveManager();
+
 // Initialize app
 document.addEventListener('DOMContentLoaded', function() {
     initializeApp();
@@ -34,6 +138,9 @@ async function initializeApp() {
 
     // Initialize closing day select
     initializeClosingDaySelect();
+
+    // Initialize keep-alive (antes de carregar dados)
+    keepAliveManager.start();
 
     // Load all data
     await loadAllData();
@@ -2397,6 +2504,9 @@ function closeAllModals() {
 
 // Auth Functions
 function logout() {
+    // Parar o keep-alive antes de fazer logout
+    keepAliveManager.stop();
+
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     window.location.href = '/login.html';
