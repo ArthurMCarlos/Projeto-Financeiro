@@ -5,11 +5,14 @@ from functools import wraps
 import jwt
 import pymongo
 from pymongo import MongoClient
+from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError, AutoReconnect
 from bson import ObjectId
 import os
 from datetime import datetime, timedelta
 import pandas as pd
 import io
+import time
+import threading
 from reportlab.lib.pagesizes import letter, A4
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -26,36 +29,167 @@ CORS(app, origins=["*"])
 MONGODB_URI = os.environ.get('MONGODB_URI')
 DATABASE_NAME = os.environ.get('DATABASE_NAME', 'financial_organizer')
 
-# Initialize MongoDB connection
-db = None
-users_collection = None
-transactions_collection = None
-categories_collection = None
-incomes_collection = None
-budgets_collection = None
-accounts_collection = None
-goals_collection = None
-credit_card_resets_collection = None  # Nova collection para histórico de resets
+# =====================================================
+# GERENCIADOR DE CONEXÃO COM RECONEXÃO AUTOMÁTICA
+# =====================================================
 
-if MONGODB_URI:
-    try:
-        client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=5000)
-        client.admin.command('ping')
-        db = client[DATABASE_NAME]
-        users_collection = db.users
-        transactions_collection = db.transactions
-        categories_collection = db.categories
-        incomes_collection = db.incomes
-        budgets_collection = db.budgets
-        accounts_collection = db.accounts
-        goals_collection = db.goals
-        credit_card_resets_collection = db.credit_card_resets  # Histórico de resets
-        print("✅ Conectado ao MongoDB com sucesso!")
-    except Exception as e:
-        print(f"❌ Erro ao conectar ao MongoDB: {e}")
-        print("⚠️ Usando armazenamento em memória")
-else:
-    print("⚠️ MONGODB_URI não configurado, usando armazenamento em memória")
+class MongoDBConnectionManager:
+    """
+    Gerenciador de conexões MongoDB com suporte a reconexão automática,
+    pooling de conexões e mecanismos de keep-alive.
+    """
+    
+    _instance = None
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
+    
+    def __init__(self):
+        if self._initialized:
+            return
+            
+        self.uri = MONGODB_URI
+        self.db_name = DATABASE_NAME
+        self._client = None
+        self._db = None
+        self._last_activity = 0
+        self._connection_timeout = 5000
+        self._socket_timeout = 10000
+        self._max_pool_size = 10
+        self._min_pool_size = 1
+        self._max_idle_time_ms = 30000
+        self._initialized = True
+        
+        self._connect()
+    
+    def _connect(self):
+        """Estabelece conexão com o MongoDB Atlas com configurações otimizadas."""
+        try:
+            self._client = MongoClient(
+                self.uri,
+                serverSelectionTimeoutMS=self._connection_timeout,
+                socketTimeoutMS=self._socket_timeout,
+                maxPoolSize=self._max_pool_size,
+                minPoolSize=self._min_pool_size,
+                maxIdleTimeMS=self._max_idle_time_ms,
+                waitQueueTimeoutMS=3000,
+                retryWrites=True,
+                retryReads=True,
+                heartbeatFrequencyMS=5000,
+                serverMonitoringMode='stream',
+                tls=True
+            )
+            
+            # Teste de conexão imediata
+            self._client.admin.command('ping')
+            self._db = self._client[self.db_name]
+            self._last_activity = time.time()
+            print(f"✅ Conectado ao MongoDB com sucesso! Banco: {self.db_name}")
+            
+        except ConnectionFailure as e:
+            print(f"❌ Erro ao conectar ao MongoDB: {e}")
+            print("⚠️ Usando armazenamento em memória")
+            self._db = None
+    
+    def _ensure_connection(self):
+        """Garante que a conexão está ativa, reconectando se necessário."""
+        current_time = time.time()
+        
+        # Verifica se passou muito tempo desde a última atividade
+        time_since_activity = current_time - self._last_activity
+        
+        # Se passaram mais de 5 minutos, tenta reconectar
+        if time_since_activity > 300:
+            try:
+                self._client.admin.command('ping')
+                self._last_activity = current_time
+            except (ConnectionFailure, ServerSelectionTimeoutError, AutoReconnect):
+                print("🔄 Conexão perdida, reconectando...")
+                self._reconnect()
+        else:
+            # Verificação rápida de conexão
+            try:
+                self._client.admin.command('ping')
+            except (ConnectionFailure, ServerSelectionTimeoutError, AutoReconnect):
+                print("🔄 Conexão instável, reconectando...")
+                self._reconnect()
+    
+    def _reconnect(self):
+        """Reconecta ao MongoDB de forma segura."""
+        try:
+            # Fecha conexão anterior se existir
+            if self._client is not None:
+                try:
+                    self._client.close()
+                except Exception:
+                    pass
+            
+            # Estabelece nova conexão
+            self._client = MongoClient(
+                self.uri,
+                serverSelectionTimeoutMS=self._connection_timeout,
+                socketTimeoutMS=self._socket_timeout,
+                maxPoolSize=self._max_pool_size,
+                minPoolSize=self._min_pool_size,
+                maxIdleTimeMS=self._max_idle_time_ms,
+                waitQueueTimeoutMS=3000,
+                retryWrites=True,
+                retryReads=True,
+                heartbeatFrequencyMS=5000,
+                serverMonitoringMode='stream',
+                tls=True
+            )
+            
+            self._db = self._client[self.db_name]
+            self._last_activity = time.time()
+            print("✅ Reconexão realizada com sucesso")
+            
+        except Exception as e:
+            print(f"❌ Erro durante reconexão: {e}")
+            self._db = None
+    
+    @property
+    def client(self):
+        """Retorna o cliente MongoDB, garantindo conexão ativa."""
+        if self._client is not None:
+            self._ensure_connection()
+        return self._client
+    
+    @property
+    def db(self):
+        """Retorna o banco de dados, garantindo conexão ativa."""
+        if self._client is not None:
+            self._ensure_connection()
+        return self._db
+    
+    def update_activity(self):
+        """Atualiza o timestamp de última atividade."""
+        self._last_activity = time.time()
+    
+    def close(self):
+        """Fecha a conexão de forma limpa."""
+        if self._client:
+            self._client.close()
+            self._client = None
+            self._db = None
+
+
+# Inicializa o gerenciador de conexões
+db_manager = MongoDBConnectionManager()
+
+# Atribui variáveis globais para compatibilidade
+db = db_manager.db
+users_collection = db.users if db else None
+transactions_collection = db.transactions if db else None
+categories_collection = db.categories if db else None
+incomes_collection = db.incomes if db else None
+budgets_collection = db.budgets if db else None
+accounts_collection = db.accounts if db else None
+goals_collection = db.goals if db else None
+credit_card_resets_collection = db.credit_card_resets if db else None
 
 # In-memory storage for development/fallback
 memory_storage = {
@@ -68,6 +202,64 @@ memory_storage = {
     'goals': [],
     'credit_card_resets': []
 }
+
+# =====================================================
+# DECORATOR PARA REQUISIÇÕES COM RETRY AUTOMÁTICO
+# =====================================================
+
+def with_connection_retry(max_retries=3, delay=0.5):
+    """
+    Decorator que adiciona lógica de retry automático para operações
+    que podem falhar devido a perda de conexão.
+    """
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            last_exception = None
+            
+            for attempt in range(max_retries):
+                try:
+                    result = f(*args, **kwargs)
+                    # Atualiza atividade após operação bem-sucedida
+                    db_manager.update_activity()
+                    return result
+                    
+                except (AutoReconnect, ConnectionFailure, ServerSelectionTimeoutError) as e:
+                    last_exception = e
+                    print(f"⚠️ Tentativa {attempt + 1}/{max_retries} falhou: {e}")
+                    
+                    if attempt < max_retries - 1:
+                        # Espera exponencial antes de retry
+                        wait_time = delay * (2 ** attempt)
+                        time.sleep(wait_time)
+                        
+                        # Força reconexão
+                        try:
+                            db_manager._reconnect()
+                            # Atualiza referências globais
+                            global db, users_collection, transactions_collection
+                            global categories_collection, incomes_collection, budgets_collection
+                            global accounts_collection, goals_collection, credit_card_resets_collection
+                            
+                            db = db_manager.db
+                            if db:
+                                users_collection = db.users
+                                transactions_collection = db.transactions
+                                categories_collection = db.categories
+                                incomes_collection = db.incomes
+                                budgets_collection = db.budgets
+                                accounts_collection = db.accounts
+                                goals_collection = db.goals
+                                credit_card_resets_collection = db.credit_card_resets
+                        except Exception:
+                            pass
+                    else:
+                        print("❌ Todas as tentativas de reconexão falharam")
+                        raise
+            
+            raise last_exception
+        return decorated_function
+    return decorator
 
 # Authentication decorator
 def token_required(f):
@@ -85,7 +277,8 @@ def token_required(f):
             data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
             current_user_id = data['user_id']
 
-            if db is not None:
+            current_user = None
+            if db_manager.db is not None:
                 current_user = users_collection.find_one({'_id': ObjectId(current_user_id)})
             else:
                 current_user = next((u for u in memory_storage['users'] if u['_id'] == current_user_id), None)
@@ -128,20 +321,11 @@ def get_next_id():
     return str(uuid.uuid4())
 
 def update_account_balance(user_id, account_id, amount_change):
-    """
-    Atualiza o saldo de uma conta específica
-
-    Args:
-        user_id (str): ID do usuário
-        account_id (str): ID da conta
-        amount_change (float): Mudança no valor (positivo para adicionar, negativo para subtrair)
-    """
     if not account_id or amount_change == 0:
         return
 
     try:
-        if db is not None:
-            # Busca a conta atual para obter o saldo atual
+        if db_manager.db is not None:
             account = accounts_collection.find_one({
                 '_id': ObjectId(account_id),
                 'user_id': user_id
@@ -151,7 +335,6 @@ def update_account_balance(user_id, account_id, amount_change):
                 current_balance = account.get('balance', 0)
                 new_balance = current_balance + amount_change
 
-                # Atualiza o saldo da conta
                 accounts_collection.update_one(
                     {'_id': ObjectId(account_id), 'user_id': user_id},
                     {'$set': {
@@ -160,7 +343,6 @@ def update_account_balance(user_id, account_id, amount_change):
                     }}
                 )
         else:
-            # Para armazenamento em memória
             account = next((a for a in memory_storage['accounts']
                            if a['_id'] == account_id and a['user_id'] == user_id), None)
 
@@ -173,21 +355,13 @@ def update_account_balance(user_id, account_id, amount_change):
         print(f"Erro ao atualizar saldo da conta {account_id}: {e}")
 
 def recalculate_account_balance(user_id, account_id):
-    """
-    Recalcula completamente o saldo de uma conta baseado em todas as transações e receitas
-
-    Args:
-        user_id (str): ID do usuário
-        account_id (str): ID da conta
-    """
     if not account_id:
         return
 
     try:
         total_change = 0
 
-        if db is not None:
-            # Calcula receitas vinculadas à conta
+        if db_manager.db is not None:
             incomes_cursor = incomes_collection.find({
                 'user_id': user_id,
                 'account_id': account_id
@@ -196,17 +370,15 @@ def recalculate_account_balance(user_id, account_id):
             for income in incomes_cursor:
                 total_change += income.get('amount', 0)
 
-            # Calcula transações (receitas e despesas) vinculadas à conta
             transactions_cursor = transactions_collection.find({
                 'user_id': user_id,
                 'account_id': account_id
             })
 
             for transaction in transactions_cursor:
-                total_change += transaction.get('income', 0)  # Adiciona receitas das transações
-                total_change -= transaction.get('expense', 0)  # Subtrai despesas das transações
+                total_change += transaction.get('income', 0)
+                total_change -= transaction.get('expense', 0)
 
-            # Atualiza o saldo da conta
             accounts_collection.update_one(
                 {'_id': ObjectId(account_id), 'user_id': user_id},
                 {'$set': {
@@ -215,7 +387,6 @@ def recalculate_account_balance(user_id, account_id):
                 }}
             )
         else:
-            # Para armazenamento em memória
             incomes = [i for i in memory_storage['incomes']
                       if i['user_id'] == user_id and i.get('account_id') == account_id]
             transactions = [t for t in memory_storage['transactions']
@@ -244,21 +415,11 @@ def recalculate_account_balance(user_id, account_id):
 # =====================================================
 
 def check_and_reset_credit_cards(user_id):
-    """
-    Verifica se é dia de fechamento de algum cartão e reseta o limite
-
-    Args:
-        user_id (str): ID do usuário
-
-    Returns:
-        list: Lista de cartões que foram resetados
-    """
     today = datetime.utcnow().day
     reset_cards = []
 
     try:
-        if db is not None:
-            # Busca todos os cartões de crédito do usuário
+        if db_manager.db is not None:
             credit_cards = list(accounts_collection.find({
                 'user_id': user_id,
                 'type': 'cartao',
@@ -266,7 +427,6 @@ def check_and_reset_credit_cards(user_id):
             }))
 
             for card in credit_cards:
-                # Verifica se já foi resetado hoje
                 last_reset = card.get('last_reset_date')
                 today_date = datetime.utcnow().date()
 
@@ -277,9 +437,8 @@ def check_and_reset_credit_cards(user_id):
                         last_reset_date = datetime.fromisoformat(str(last_reset)).date()
 
                     if last_reset_date == today_date:
-                        continue  # Já foi resetado hoje
+                        continue
 
-                # Reseta o saldo para o limite do cartão
                 credit_limit = card.get('credit_limit', 0)
                 old_balance = card.get('balance', 0)
 
@@ -292,7 +451,6 @@ def check_and_reset_credit_cards(user_id):
                     }}
                 )
 
-                # Registra o reset no histórico
                 reset_record = {
                     'user_id': user_id,
                     'account_id': str(card['_id']),
@@ -312,7 +470,6 @@ def check_and_reset_credit_cards(user_id):
                     'credit_limit': credit_limit
                 })
         else:
-            # Para armazenamento em memória
             credit_cards = [a for a in memory_storage['accounts']
                            if a['user_id'] == user_id and
                            a['type'] == 'cartao' and
@@ -365,18 +522,8 @@ def check_and_reset_credit_cards(user_id):
 
 
 def force_reset_credit_card(user_id, account_id):
-    """
-    Força o reset de um cartão de crédito específico
-
-    Args:
-        user_id (str): ID do usuário
-        account_id (str): ID da conta/cartão
-
-    Returns:
-        dict: Informações do reset ou None se falhou
-    """
     try:
-        if db is not None:
+        if db_manager.db is not None:
             card = accounts_collection.find_one({
                 '_id': ObjectId(account_id),
                 'user_id': user_id,
@@ -398,7 +545,6 @@ def force_reset_credit_card(user_id, account_id):
                 }}
             )
 
-            # Registra o reset no histórico
             reset_record = {
                 'user_id': user_id,
                 'account_id': account_id,
@@ -450,7 +596,7 @@ def force_reset_credit_card(user_id, account_id):
 # Routes
 @app.route('/')
 def index():
-    db_status = db is not None
+    db_status = db_manager.db is not None
     return render_template_string("""
     <!DOCTYPE html>
     <html lang="pt-BR">
@@ -495,6 +641,7 @@ def index():
             <div class="status success">
                 <h3>✅ API Online e Funcionando</h3>
                 <p>Backend Flask rodando com sucesso!</p>
+                <p>Database: """ + ("MongoDB Atlas" if db_status else "Memory Storage") + """</p>
                 <div style="text-align: center;">
                     <a href="/login.html" class="btn">🔐 Acessar Sistema</a>
                 </div>
@@ -506,13 +653,14 @@ def index():
 
 # Authentication Routes
 @app.route('/api/auth/register', methods=['POST'])
+@with_connection_retry(max_retries=3)
 def register():
     data = request.get_json()
 
     if not data or not all(k in data for k in ('name', 'email', 'password')):
         return jsonify({'message': 'Dados incompletos'}), 400
 
-    if db is not None:
+    if db_manager.db is not None:
         existing_user = users_collection.find_one({'email': data['email']})
     else:
         existing_user = next((u for u in memory_storage['users'] if u['email'] == data['email']), None)
@@ -527,7 +675,7 @@ def register():
         'created_at': datetime.utcnow()
     }
 
-    if db is not None:
+    if db_manager.db is not None:
         result = users_collection.insert_one(user_data)
         user_id = str(result.inserted_id)
     else:
@@ -535,7 +683,6 @@ def register():
         user_data['_id'] = user_id
         memory_storage['users'].append(user_data)
 
-    # Create default categories
     default_categories = [
         {'name': 'Alimentação', 'description': 'Gastos com comida e bebidas'},
         {'name': 'Transporte', 'description': 'Combustível, transporte público, manutenção de veículo'},
@@ -555,13 +702,12 @@ def register():
             'created_at': datetime.utcnow()
         }
 
-        if db is not None:
+        if db_manager.db is not None:
             categories_collection.insert_one(category_data)
         else:
             category_data['_id'] = get_next_id()
             memory_storage['categories'].append(category_data)
 
-    # Create default account
     default_account = {
         'name': 'Conta Principal',
         'type': 'corrente',
@@ -570,7 +716,7 @@ def register():
         'created_at': datetime.utcnow()
     }
 
-    if db is not None:
+    if db_manager.db is not None:
         accounts_collection.insert_one(default_account)
     else:
         default_account['_id'] = get_next_id()
@@ -579,13 +725,14 @@ def register():
     return jsonify({'message': 'Usuário cadastrado com sucesso'}), 201
 
 @app.route('/api/auth/login', methods=['POST'])
+@with_connection_retry(max_retries=3)
 def login():
     data = request.get_json()
 
     if not data or not all(k in data for k in ('email', 'password')):
         return jsonify({'message': 'Email e senha são obrigatórios'}), 400
 
-    if db is not None:
+    if db_manager.db is not None:
         user = users_collection.find_one({'email': data['email']})
     else:
         user = next((u for u in memory_storage['users'] if u['email'] == data['email']), None)
@@ -610,10 +757,11 @@ def login():
 # Categories Routes
 @app.route('/api/categories', methods=['GET'])
 @token_required
+@with_connection_retry(max_retries=3)
 def get_categories(current_user):
     user_id = str(current_user['_id'])
 
-    if db is not None:
+    if db_manager.db is not None:
         categories = list(categories_collection.find({'user_id': user_id}))
     else:
         categories = [c for c in memory_storage['categories'] if c['user_id'] == user_id]
@@ -622,6 +770,7 @@ def get_categories(current_user):
 
 @app.route('/api/categories', methods=['POST'])
 @token_required
+@with_connection_retry(max_retries=3)
 def create_category(current_user):
     data = request.get_json()
 
@@ -630,8 +779,7 @@ def create_category(current_user):
 
     user_id = str(current_user['_id'])
 
-    # Verifica se já existe uma categoria com o mesmo nome para o usuário
-    if db is not None:
+    if db_manager.db is not None:
         existing_category = categories_collection.find_one({
             'name': data['name'],
             'user_id': user_id
@@ -650,7 +798,7 @@ def create_category(current_user):
         'created_at': datetime.utcnow()
     }
 
-    if db is not None:
+    if db_manager.db is not None:
         result = categories_collection.insert_one(category_data)
         category_id = str(result.inserted_id)
     else:
@@ -662,6 +810,7 @@ def create_category(current_user):
 
 @app.route('/api/categories/<category_id>', methods=['PUT'])
 @token_required
+@with_connection_retry(max_retries=3)
 def update_category(current_user, category_id):
     data = request.get_json()
     user_id = str(current_user['_id'])
@@ -669,13 +818,12 @@ def update_category(current_user, category_id):
     if not data:
         return jsonify({'message': 'Nenhum dado fornecido'}), 400
 
-    # Verifica se já existe outra categoria com o mesmo nome para o usuário
     if 'name' in data:
-        if db is not None:
+        if db_manager.db is not None:
             existing_category = categories_collection.find_one({
                 'name': data['name'],
                 'user_id': user_id,
-                '_id': {'$ne': ObjectId(category_id)}  # Exclui a categoria atual da busca
+                '_id': {'$ne': ObjectId(category_id)}
             })
         else:
             existing_category = next((c for c in memory_storage['categories']
@@ -693,7 +841,7 @@ def update_category(current_user, category_id):
 
     update_data['updated_at'] = datetime.utcnow()
 
-    if db is not None:
+    if db_manager.db is not None:
         result = categories_collection.update_one(
             {'_id': ObjectId(category_id), 'user_id': user_id},
             {'$set': update_data}
@@ -714,11 +862,11 @@ def update_category(current_user, category_id):
 
 @app.route('/api/categories/<category_id>', methods=['DELETE'])
 @token_required
+@with_connection_retry(max_retries=3)
 def delete_category(current_user, category_id):
     user_id = str(current_user['_id'])
 
-    # Verifica se a categoria está sendo usada em transações
-    if db is not None:
+    if db_manager.db is not None:
         transactions_using_category = transactions_collection.count_documents({
             'category_id': category_id,
             'user_id': user_id
@@ -738,7 +886,7 @@ def delete_category(current_user, category_id):
             'message': f'Não é possível excluir esta categoria. Ela está sendo usada em {transactions_using_category} transações e {budgets_using_category} orçamentos.'
         }), 400
 
-    if db is not None:
+    if db_manager.db is not None:
         result = categories_collection.delete_one({
             '_id': ObjectId(category_id),
             'user_id': user_id
@@ -760,10 +908,11 @@ def delete_category(current_user, category_id):
 # Transactions Routes
 @app.route('/api/transactions', methods=['GET'])
 @token_required
+@with_connection_retry(max_retries=3)
 def get_transactions(current_user):
     user_id = str(current_user['_id'])
 
-    if db is not None:
+    if db_manager.db is not None:
         transactions = list(transactions_collection.find({'user_id': user_id}).sort('month', -1))
     else:
         transactions = [t for t in memory_storage['transactions'] if t['user_id'] == user_id]
@@ -773,6 +922,7 @@ def get_transactions(current_user):
 
 @app.route('/api/transactions', methods=['POST'])
 @token_required
+@with_connection_retry(max_retries=3)
 def create_transaction(current_user):
     data = request.get_json()
 
@@ -794,7 +944,7 @@ def create_transaction(current_user):
         'created_at': datetime.utcnow()
     }
 
-    if db is not None:
+    if db_manager.db is not None:
         result = transactions_collection.insert_one(transaction_data)
         transaction_id = str(result.inserted_id)
     else:
@@ -802,17 +952,17 @@ def create_transaction(current_user):
         transaction_data['_id'] = transaction_id
         memory_storage['transactions'].append(transaction_data)
 
-    # Atualiza o saldo da conta se foi vinculada uma conta
     if data.get('account_id'):
         expense = float(data.get('expense', 0))
         income = float(data.get('income', 0))
-        net_change = income - expense  # Receitas adicionam, despesas subtraem
+        net_change = income - expense
         update_account_balance(user_id, data['account_id'], net_change)
 
     return jsonify({'message': 'Transação criada com sucesso', 'id': transaction_id}), 201
 
 @app.route('/api/transactions/<transaction_id>', methods=['PUT'])
 @token_required
+@with_connection_retry(max_retries=3)
 def update_transaction(current_user, transaction_id):
     data = request.get_json()
     user_id = str(current_user['_id'])
@@ -827,7 +977,7 @@ def update_transaction(current_user, transaction_id):
 
     update_data['updated_at'] = datetime.utcnow()
 
-    if db is not None:
+    if db_manager.db is not None:
         result = transactions_collection.update_one(
             {'_id': ObjectId(transaction_id), 'user_id': user_id},
             {'$set': update_data}
@@ -844,7 +994,6 @@ def update_transaction(current_user, transaction_id):
 
         transaction.update(update_data)
 
-    # Se foi vinculado uma conta ou valores foram alterados, recalcula o saldo da conta
     if ('account_id' in update_data or 'expense' in update_data or 'income' in update_data):
         account_id = update_data.get('account_id')
         if account_id:
@@ -854,11 +1003,11 @@ def update_transaction(current_user, transaction_id):
 
 @app.route('/api/transactions/<transaction_id>', methods=['DELETE'])
 @token_required
+@with_connection_retry(max_retries=3)
 def delete_transaction(current_user, transaction_id):
     user_id = str(current_user['_id'])
 
-    if db is not None:
-        # Busca a transação primeiro para obter o account_id
+    if db_manager.db is not None:
         transaction = transactions_collection.find_one({
             '_id': ObjectId(transaction_id),
             'user_id': user_id
@@ -867,7 +1016,6 @@ def delete_transaction(current_user, transaction_id):
         if not transaction:
             return jsonify({'message': 'Transação não encontrada'}), 404
 
-        # Atualiza o saldo da conta se a transação tinha uma conta vinculada
         if transaction.get('account_id'):
             expense = transaction.get('expense', 0)
             income = transaction.get('income', 0)
@@ -885,11 +1033,10 @@ def delete_transaction(current_user, transaction_id):
         if not transaction:
             return jsonify({'message': 'Transação não encontrada'}), 404
 
-        # Atualiza o saldo da conta se a transação tinha uma conta vinculada
         if transaction.get('account_id'):
             expense = transaction.get('expense', 0)
             income = transaction.get('income', 0)
-            net_change = -(income - expense)  # Inverte o cálculo para subtração
+            net_change = -(income - expense)
             update_account_balance(user_id, transaction['account_id'], net_change)
 
         memory_storage['transactions'].remove(transaction)
@@ -899,10 +1046,11 @@ def delete_transaction(current_user, transaction_id):
 # Incomes Routes
 @app.route('/api/incomes', methods=['GET'])
 @token_required
+@with_connection_retry(max_retries=3)
 def get_incomes(current_user):
     user_id = str(current_user['_id'])
 
-    if db is not None:
+    if db_manager.db is not None:
         incomes = list(incomes_collection.find({'user_id': user_id}).sort('month', -1))
     else:
         incomes = [i for i in memory_storage['incomes'] if i['user_id'] == user_id]
@@ -912,6 +1060,7 @@ def get_incomes(current_user):
 
 @app.route('/api/incomes', methods=['POST'])
 @token_required
+@with_connection_retry(max_retries=3)
 def create_income(current_user):
     data = request.get_json()
 
@@ -930,7 +1079,7 @@ def create_income(current_user):
         'created_at': datetime.utcnow()
     }
 
-    if db is not None:
+    if db_manager.db is not None:
         result = incomes_collection.insert_one(income_data)
         income_id = str(result.inserted_id)
     else:
@@ -938,7 +1087,6 @@ def create_income(current_user):
         income_data['_id'] = income_id
         memory_storage['incomes'].append(income_data)
 
-    # Atualiza o saldo da conta se foi vinculada uma conta
     if data.get('account_id'):
         update_account_balance(user_id, data['account_id'], float(data['amount']))
 
@@ -946,6 +1094,7 @@ def create_income(current_user):
 
 @app.route('/api/incomes/<income_id>', methods=['PUT'])
 @token_required
+@with_connection_retry(max_retries=3)
 def update_income(current_user, income_id):
     data = request.get_json()
     user_id = str(current_user['_id'])
@@ -960,7 +1109,7 @@ def update_income(current_user, income_id):
 
     update_data['updated_at'] = datetime.utcnow()
 
-    if db is not None:
+    if db_manager.db is not None:
         result = incomes_collection.update_one(
             {'_id': ObjectId(income_id), 'user_id': user_id},
             {'$set': update_data}
@@ -977,20 +1126,16 @@ def update_income(current_user, income_id):
 
         income.update(update_data)
 
-    # Se foi vinculado uma conta, recalcula o saldo da conta
     if 'account_id' in update_data or 'amount' in update_data:
         if 'account_id' in update_data and 'amount' in update_data:
-            # Se ambos mudaram, precisa recalcular a conta completa
             account_id = update_data['account_id']
             if account_id:
                 recalculate_account_balance(user_id, account_id)
         elif 'amount' in update_data:
-            # Só o valor mudou, precisa recalcular para obter o valor atualizado
             account_id = update_data.get('account_id')
             if account_id:
                 recalculate_account_balance(user_id, account_id)
         elif 'account_id' in update_data:
-            # Só a conta mudou, recalcula ambas
             new_account_id = update_data['account_id']
             if new_account_id:
                 recalculate_account_balance(user_id, new_account_id)
@@ -999,11 +1144,11 @@ def update_income(current_user, income_id):
 
 @app.route('/api/incomes/<income_id>', methods=['DELETE'])
 @token_required
+@with_connection_retry(max_retries=3)
 def delete_income(current_user, income_id):
     user_id = str(current_user['_id'])
 
-    if db is not None:
-        # Busca a receita primeiro para obter o account_id
+    if db_manager.db is not None:
         income = incomes_collection.find_one({
             '_id': ObjectId(income_id),
             'user_id': user_id
@@ -1012,7 +1157,6 @@ def delete_income(current_user, income_id):
         if not income:
             return jsonify({'message': 'Receita não encontrada'}), 404
 
-        # Atualiza o saldo da conta se a receita tinha uma conta vinculada
         if income.get('account_id'):
             update_account_balance(user_id, income['account_id'], -float(income.get('amount', 0)))
 
@@ -1027,7 +1171,6 @@ def delete_income(current_user, income_id):
         if not income:
             return jsonify({'message': 'Receita não encontrada'}), 404
 
-        # Atualiza o saldo da conta se a receita tinha uma conta vinculada
         if income.get('account_id'):
             update_account_balance(user_id, income['account_id'], -float(income.get('amount', 0)))
 
@@ -1038,10 +1181,11 @@ def delete_income(current_user, income_id):
 # Budgets Routes
 @app.route('/api/budgets', methods=['GET'])
 @token_required
+@with_connection_retry(max_retries=3)
 def get_budgets(current_user):
     user_id = str(current_user['_id'])
 
-    if db is not None:
+    if db_manager.db is not None:
         budgets = list(budgets_collection.find({'user_id': user_id}))
     else:
         budgets = [b for b in memory_storage['budgets'] if b['user_id'] == user_id]
@@ -1050,6 +1194,7 @@ def get_budgets(current_user):
 
 @app.route('/api/budgets', methods=['POST'])
 @token_required
+@with_connection_retry(max_retries=3)
 def create_budget(current_user):
     data = request.get_json()
 
@@ -1067,7 +1212,7 @@ def create_budget(current_user):
         'created_at': datetime.utcnow()
     }
 
-    if db is not None:
+    if db_manager.db is not None:
         result = budgets_collection.insert_one(budget_data)
         budget_id = str(result.inserted_id)
     else:
@@ -1079,6 +1224,7 @@ def create_budget(current_user):
 
 @app.route('/api/budgets/<budget_id>', methods=['PUT'])
 @token_required
+@with_connection_retry(max_retries=3)
 def update_budget(current_user, budget_id):
     data = request.get_json()
     user_id = str(current_user['_id'])
@@ -1093,7 +1239,7 @@ def update_budget(current_user, budget_id):
 
     update_data['updated_at'] = datetime.utcnow()
 
-    if db is not None:
+    if db_manager.db is not None:
         result = budgets_collection.update_one(
             {'_id': ObjectId(budget_id), 'user_id': user_id},
             {'$set': update_data}
@@ -1114,10 +1260,11 @@ def update_budget(current_user, budget_id):
 
 @app.route('/api/budgets/<budget_id>', methods=['DELETE'])
 @token_required
+@with_connection_retry(max_retries=3)
 def delete_budget(current_user, budget_id):
     user_id = str(current_user['_id'])
 
-    if db is not None:
+    if db_manager.db is not None:
         result = budgets_collection.delete_one({
             '_id': ObjectId(budget_id),
             'user_id': user_id
@@ -1139,10 +1286,11 @@ def delete_budget(current_user, budget_id):
 # Accounts Routes
 @app.route('/api/accounts', methods=['GET'])
 @token_required
+@with_connection_retry(max_retries=3)
 def get_accounts(current_user):
     user_id = str(current_user['_id'])
 
-    if db is not None:
+    if db_manager.db is not None:
         accounts = list(accounts_collection.find({'user_id': user_id}))
     else:
         accounts = [a for a in memory_storage['accounts'] if a['user_id'] == user_id]
@@ -1151,6 +1299,7 @@ def get_accounts(current_user):
 
 @app.route('/api/accounts', methods=['POST'])
 @token_required
+@with_connection_retry(max_retries=3)
 def create_account(current_user):
     data = request.get_json()
 
@@ -1168,21 +1317,19 @@ def create_account(current_user):
         'created_at': datetime.utcnow()
     }
 
-    # Campos específicos para cartão de crédito
     if data['type'] == 'cartao':
         credit_limit = float(data.get('credit_limit', 0))
         closing_day = int(data.get('closing_day', 1))
 
-        # Validação do dia de fechamento
         if closing_day < 1 or closing_day > 31:
             return jsonify({'message': 'Dia de fechamento deve ser entre 1 e 31'}), 400
 
         account_data['credit_limit'] = credit_limit
         account_data['closing_day'] = closing_day
-        account_data['balance'] = credit_limit  # Saldo inicial = limite
+        account_data['balance'] = credit_limit
         account_data['last_reset_date'] = None
 
-    if db is not None:
+    if db_manager.db is not None:
         result = accounts_collection.insert_one(account_data)
         account_id = str(result.inserted_id)
     else:
@@ -1194,6 +1341,7 @@ def create_account(current_user):
 
 @app.route('/api/accounts/<account_id>', methods=['PUT'])
 @token_required
+@with_connection_retry(max_retries=3)
 def update_account(current_user, account_id):
     data = request.get_json()
     user_id = str(current_user['_id'])
@@ -1213,7 +1361,7 @@ def update_account(current_user, account_id):
 
     update_data['updated_at'] = datetime.utcnow()
 
-    if db is not None:
+    if db_manager.db is not None:
         result = accounts_collection.update_one(
             {'_id': ObjectId(account_id), 'user_id': user_id},
             {'$set': update_data}
@@ -1234,10 +1382,11 @@ def update_account(current_user, account_id):
 
 @app.route('/api/accounts/<account_id>', methods=['DELETE'])
 @token_required
+@with_connection_retry(max_retries=3)
 def delete_account(current_user, account_id):
     user_id = str(current_user['_id'])
 
-    if db is not None:
+    if db_manager.db is not None:
         result = accounts_collection.delete_one({
             '_id': ObjectId(account_id),
             'user_id': user_id
@@ -1263,11 +1412,8 @@ def delete_account(current_user, account_id):
 
 @app.route('/api/accounts/check-resets', methods=['POST'])
 @token_required
+@with_connection_retry(max_retries=3)
 def check_credit_card_resets(current_user):
-    """
-    Verifica e executa reset automático de cartões de crédito
-    Chamado quando o usuário abre o dashboard
-    """
     user_id = str(current_user['_id'])
 
     reset_cards = check_and_reset_credit_cards(user_id)
@@ -1280,10 +1426,8 @@ def check_credit_card_resets(current_user):
 
 @app.route('/api/accounts/<account_id>/reset', methods=['POST'])
 @token_required
+@with_connection_retry(max_retries=3)
 def manual_reset_credit_card(current_user, account_id):
-    """
-    Reset manual de um cartão de crédito específico
-    """
     user_id = str(current_user['_id'])
 
     result = force_reset_credit_card(user_id, account_id)
@@ -1298,13 +1442,11 @@ def manual_reset_credit_card(current_user, account_id):
 
 @app.route('/api/accounts/credit-cards', methods=['GET'])
 @token_required
+@with_connection_retry(max_retries=3)
 def get_credit_cards(current_user):
-    """
-    Lista todos os cartões de crédito do usuário com informações de reset
-    """
     user_id = str(current_user['_id'])
 
-    if db is not None:
+    if db_manager.db is not None:
         credit_cards = list(accounts_collection.find({
             'user_id': user_id,
             'type': 'cartao'
@@ -1313,7 +1455,6 @@ def get_credit_cards(current_user):
         credit_cards = [a for a in memory_storage['accounts']
                        if a['user_id'] == user_id and a['type'] == 'cartao']
 
-    # Adiciona informações extras para cada cartão
     today = datetime.utcnow().day
     cards_with_info = []
 
@@ -1321,11 +1462,9 @@ def get_credit_cards(current_user):
         card_info = serialize_doc(card)
         closing_day = card.get('closing_day', 1)
 
-        # Calcula dias até o próximo fechamento
         if closing_day >= today:
             days_until_closing = closing_day - today
         else:
-            # Próximo mês
             import calendar
             current_month = datetime.utcnow().month
             current_year = datetime.utcnow().year
@@ -1346,13 +1485,11 @@ def get_credit_cards(current_user):
 
 @app.route('/api/accounts/reset-history', methods=['GET'])
 @token_required
+@with_connection_retry(max_retries=3)
 def get_reset_history(current_user):
-    """
-    Retorna o histórico de resets de cartão de crédito
-    """
     user_id = str(current_user['_id'])
 
-    if db is not None:
+    if db_manager.db is not None:
         history = list(credit_card_resets_collection.find({
             'user_id': user_id
         }).sort('reset_date', -1).limit(50))
@@ -1367,10 +1504,11 @@ def get_reset_history(current_user):
 # Goals Routes
 @app.route('/api/goals', methods=['GET'])
 @token_required
+@with_connection_retry(max_retries=3)
 def get_goals(current_user):
     user_id = str(current_user['_id'])
 
-    if db is not None:
+    if db_manager.db is not None:
         goals = list(goals_collection.find({'user_id': user_id}))
     else:
         goals = [g for g in memory_storage['goals'] if g['user_id'] == user_id]
@@ -1379,6 +1517,7 @@ def get_goals(current_user):
 
 @app.route('/api/goals', methods=['POST'])
 @token_required
+@with_connection_retry(max_retries=3)
 def create_goal(current_user):
     data = request.get_json()
 
@@ -1398,7 +1537,7 @@ def create_goal(current_user):
         'created_at': datetime.utcnow()
     }
 
-    if db is not None:
+    if db_manager.db is not None:
         result = goals_collection.insert_one(goal_data)
         goal_id = str(result.inserted_id)
     else:
@@ -1410,6 +1549,7 @@ def create_goal(current_user):
 
 @app.route('/api/goals/<goal_id>', methods=['PUT'])
 @token_required
+@with_connection_retry(max_retries=3)
 def update_goal(current_user, goal_id):
     data = request.get_json()
     user_id = str(current_user['_id'])
@@ -1424,7 +1564,7 @@ def update_goal(current_user, goal_id):
 
     update_data['updated_at'] = datetime.utcnow()
 
-    if db is not None:
+    if db_manager.db is not None:
         result = goals_collection.update_one(
             {'_id': ObjectId(goal_id), 'user_id': user_id},
             {'$set': update_data}
@@ -1445,10 +1585,11 @@ def update_goal(current_user, goal_id):
 
 @app.route('/api/goals/<goal_id>', methods=['DELETE'])
 @token_required
+@with_connection_retry(max_retries=3)
 def delete_goal(current_user, goal_id):
     user_id = str(current_user['_id'])
 
-    if db is not None:
+    if db_manager.db is not None:
         result = goals_collection.delete_one({
             '_id': ObjectId(goal_id),
             'user_id': user_id
@@ -1469,8 +1610,9 @@ def delete_goal(current_user, goal_id):
 
 # Statistics Route
 @app.route('/api/stats')
+@with_connection_retry(max_retries=3)
 def get_stats():
-    if db is not None:
+    if db_manager.db is not None:
         total_users = users_collection.count_documents({})
         total_transactions = transactions_collection.count_documents({})
         total_categories = categories_collection.count_documents({})
@@ -1481,20 +1623,21 @@ def get_stats():
 
     return jsonify({
         'status': 'online',
-        'database': 'MongoDB Atlas' if db is not None else 'Memory Storage',
+        'database': 'MongoDB Atlas' if db_manager.db is not None else 'Memory Storage',
         'total_users': total_users,
         'total_transactions': total_transactions,
         'total_categories': total_categories,
-        'version': '2.1.0'  # Versão atualizada com funcionalidade de cartão de crédito
+        'version': '2.2.0'  # Versão atualizada com reconexão automática
     })
 
 # Export Routes
 @app.route('/api/export/<format>', methods=['GET'])
 @token_required
+@with_connection_retry(max_retries=3)
 def export_data(current_user, format):
     user_id = str(current_user['_id'])
 
-    if db is not None:
+    if db_manager.db is not None:
         transactions = list(transactions_collection.find({'user_id': user_id}))
         categories = list(categories_collection.find({'user_id': user_id}))
     else:
@@ -1547,6 +1690,7 @@ def export_data(current_user, format):
 # Import Route
 @app.route('/api/import', methods=['POST'])
 @token_required
+@with_connection_retry(max_retries=3)
 def import_data(current_user):
     if 'file' not in request.files:
         return jsonify({'message': 'Nenhum arquivo enviado'}), 400
@@ -1565,7 +1709,7 @@ def import_data(current_user):
         else:
             return jsonify({'message': 'Formato de arquivo não suportado'}), 400
 
-        if db is not None:
+        if db_manager.db is not None:
             categories = list(categories_collection.find({'user_id': user_id}))
         else:
             categories = [c for c in memory_storage['categories'] if c['user_id'] == user_id]
@@ -1586,7 +1730,7 @@ def import_data(current_user):
                         'created_at': datetime.utcnow()
                     }
 
-                    if db is not None:
+                    if db_manager.db is not None:
                         result = categories_collection.insert_one(category_data)
                         category_id = str(result.inserted_id)
                     else:
@@ -1607,7 +1751,7 @@ def import_data(current_user):
                     'created_at': datetime.utcnow()
                 }
 
-                if db is not None:
+                if db_manager.db is not None:
                     transactions_collection.insert_one(transaction_data)
                 else:
                     transaction_data['_id'] = get_next_id()
@@ -1648,9 +1792,19 @@ def serve_static(filename):
 # Health check endpoint
 @app.route('/health')
 def health_check():
+    try:
+        if db_manager.db is not None:
+            db_manager.client.admin.command('ping')
+            db_status = 'connected'
+        else:
+            db_status = 'memory'
+    except Exception:
+        db_status = 'disconnected'
+
     return jsonify({
         'status': 'healthy',
-        'database': 'mongodb' if db is not None else 'memory',
+        'database': db_status,
+        'message': 'Servidor ativo',
         'timestamp': datetime.utcnow().isoformat()
     })
 
