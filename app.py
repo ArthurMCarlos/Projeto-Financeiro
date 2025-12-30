@@ -170,7 +170,7 @@ class MongoDBConnectionManager:
     
     def close(self):
         """Fecha a conexão de forma limpa."""
-        if self._client:
+        if self._client is not None:
             self._client.close()
             self._client = None
             self._db = None
@@ -181,14 +181,14 @@ db_manager = MongoDBConnectionManager()
 
 # Atribui variáveis globais para compatibilidade
 db = db_manager.db
-users_collection = db.users if db else None
-transactions_collection = db.transactions if db else None
-categories_collection = db.categories if db else None
-incomes_collection = db.incomes if db else None
-budgets_collection = db.budgets if db else None
-accounts_collection = db.accounts if db else None
-goals_collection = db.goals if db else None
-credit_card_resets_collection = db.credit_card_resets if db else None
+users_collection = db.users if db is not None else None
+transactions_collection = db.transactions if db is not None else None
+categories_collection = db.categories if db is not None else None
+incomes_collection = db.incomes if db is not None else None
+budgets_collection = db.budgets if db is not None else None
+accounts_collection = db.accounts if db is not None else None
+goals_collection = db.goals if db is not None else None
+credit_card_resets_collection = db.credit_card_resets if db is not None else None
 
 # In-memory storage for development/fallback
 memory_storage = {
@@ -241,7 +241,7 @@ def with_connection_retry(max_retries=3, delay=0.5):
                             global accounts_collection, goals_collection, credit_card_resets_collection
                             
                             db = db_manager.db
-                            if db:
+                            if db is not None:
                                 users_collection = db.users
                                 transactions_collection = db.transactions
                                 categories_collection = db.categories
