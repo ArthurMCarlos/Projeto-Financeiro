@@ -638,9 +638,17 @@ async function loadAccounts() {
 function updateAccountBalances() {
     accounts.forEach(account => {
         if (account._id) {
-            // Para cartões de crédito, o saldo é gerenciado separadamente
+            // Para cartões de crédito, o saldo é gerenciado pelo backend - NÃO recalcular!
             if (account.type === 'cartao') {
-                // O saldo do cartão já vem do backend
+                console.log(`ℹ️ Pulando recalculo para cartão de crédito: ${account.name}`);
+                
+                // Atualizar visualmente apenas para garantir consistência
+                const balanceElement = document.querySelector(`[data-account-id="${account._id}"] .account-balance`);
+                if (balanceElement) {
+                    const creditLimit = account.credit_limit || 0;
+                    const balance = account.balance || 0;
+                    balanceElement.textContent = `R$ ${formatCurrency(balance)}`;
+                }
                 return;
             }
 
