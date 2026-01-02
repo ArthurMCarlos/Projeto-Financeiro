@@ -331,24 +331,51 @@ def update_account_balance(user_id, account_id, amount_change):
             })
 
             if account:
-                current_balance = account.get('balance', 0)
-                new_balance = current_balance + amount_change
+                # Se for cartão de crédito, o amount_change deve ser tratado de forma diferente
+                if account.get('type') == 'cartao':
+                    current_balance = account.get('balance', 0)
+                    # Para cartão de crédito:
+                    # - expense (gastos) devem DIMINUIR o limite disponível (amount_change será negativo)
+                    # - income (pagamentos/faturamento) devem AUMENTAR o limite disponível (amount_change será positivo)
+                    # A fórmula é: novo_balance = atual - expense (ou + income)
+                    new_balance = current_balance - amount_change
+                    
+                    accounts_collection.update_one(
+                        {'_id': ObjectId(account_id), 'user_id': user_id},
+                        {'$set': {
+                            'balance': new_balance,
+                            'updated_at': datetime.utcnow()
+                        }}
+                    )
+                    print(f"💳 Cartão atualizado: {account.get('name')} | Anterior: R$ {current_balance} | Novo: R$ {new_balance}")
+                else:
+                    # Para outras contas, usar lógica normal (soma)
+                    current_balance = account.get('balance', 0)
+                    new_balance = current_balance + amount_change
 
-                accounts_collection.update_one(
-                    {'_id': ObjectId(account_id), 'user_id': user_id},
-                    {'$set': {
-                        'balance': new_balance,
-                        'updated_at': datetime.utcnow()
-                    }}
-                )
+                    accounts_collection.update_one(
+                        {'_id': ObjectId(account_id), 'user_id': user_id},
+                        {'$set': {
+                            'balance': new_balance,
+                            'updated_at': datetime.utcnow()
+                        }}
+                    )
         else:
             account = next((a for a in memory_storage['accounts']
                            if a['_id'] == account_id and a['user_id'] == user_id), None)
 
             if account:
-                current_balance = account.get('balance', 0)
-                account['balance'] = current_balance + amount_change
-                account['updated_at'] = datetime.utcnow()
+                # Se for cartão de crédito, usar lógica específica
+                if account.get('type') == 'cartao':
+                    current_balance = account.get('balance', 0)
+                    new_balance = current_balance - amount_change
+                    account['balance'] = new_balance
+                    account['updated_at'] = datetime.utcnow()
+                    print(f"💳 Cartão atualizado (memory): {account.get('name')} | Anterior: R$ {current_balance} | Novo: R$ {new_balance}")
+                else:
+                    current_balance = account.get('balance', 0)
+                    account['balance'] = current_balance + amount_change
+                    account['updated_at'] = datetime.utcnow()
 
     except Exception as e:
         print(f"Erro ao atualizar saldo da conta {account_id}: {e}")
@@ -358,6 +385,21 @@ def recalculate_account_balance(user_id, account_id):
         return
 
     try:
+        # Verificar se é um cartão de crédito - NÃO recalcular!
+        if db_manager.db is not None:
+            account_check = accounts_collection.find_one({
+                '_id': ObjectId(account_id),
+                'user_id': user_id
+            })
+        else:
+            account_check = next((a for a in memory_storage['accounts']
+                               if a['_id'] == account_id and a['user_id'] == user_id), None)
+        
+        # Se for cartão de crédito, não recalcular - o saldo já é gerenciado corretamente
+        if account_check and account_check.get('type') == 'cartao':
+            print(f"ℹ️ Pulando recalculo para cartão de crédito {account_id} - saldo gerenciado automaticamente")
+            return
+        
         total_change = 0
 
         if db_manager.db is not None:
@@ -535,10 +577,29 @@ def force_reset_credit_card(user_id, account_id):
             credit_limit = card.get('credit_limit', 0)
             old_balance = card.get('balance', 0)
 
+            # Calcular o saldo correto com base nas transações
+            total_expenses = 0
+            transactions_cursor = transactions_collection.find({
+                'user_id': user_id,
+                'account_id': account_id
+            })
+            for transaction in transactions_cursor:
+                total_expenses += transaction.get('expense', 0)
+                total_expenses -= transaction.get('income', 0)  # Pagamentos aumentam o limite disponível
+            
+            # O saldo correto é: limite - gastos (ou + pagamentos)
+            correct_balance = credit_limit - total_expenses
+
+            print(f"🔧 Correção de cartão: {card.get('name')}")
+            print(f"   Limite: R$ {credit_limit}")
+            print(f"   Gastos líquidos: R$ {total_expenses}")
+            print(f"   Saldo antigo: R$ {old_balance}")
+            print(f"   Saldo correto: R$ {correct_balance}")
+
             accounts_collection.update_one(
                 {'_id': ObjectId(account_id)},
                 {'$set': {
-                    'balance': credit_limit,
+                    'balance': correct_balance,
                     'last_reset_date': datetime.utcnow(),
                     'updated_at': datetime.utcnow()
                 }}
@@ -549,7 +610,7 @@ def force_reset_credit_card(user_id, account_id):
                 'account_id': account_id,
                 'account_name': card.get('name', 'Cartão'),
                 'old_balance': old_balance,
-                'new_balance': credit_limit,
+                'new_balance': correct_balance,
                 'credit_limit': credit_limit,
                 'reset_date': datetime.utcnow(),
                 'manual': True
@@ -560,7 +621,7 @@ def force_reset_credit_card(user_id, account_id):
                 'id': account_id,
                 'name': card.get('name', 'Cartão'),
                 'old_balance': old_balance,
-                'new_balance': credit_limit,
+                'new_balance': correct_balance,
                 'credit_limit': credit_limit
             }
         else:
@@ -575,7 +636,17 @@ def force_reset_credit_card(user_id, account_id):
             credit_limit = card.get('credit_limit', 0)
             old_balance = card.get('balance', 0)
 
-            card['balance'] = credit_limit
+            # Calcular o saldo correto
+            total_expenses = 0
+            account_transactions = [t for t in memory_storage['transactions']
+                                   if t['user_id'] == user_id and t.get('account_id') == account_id]
+            for transaction in account_transactions:
+                total_expenses += transaction.get('expense', 0)
+                total_expenses -= transaction.get('income', 0)
+            
+            correct_balance = credit_limit - total_expenses
+
+            card['balance'] = correct_balance
             card['last_reset_date'] = datetime.utcnow()
             card['updated_at'] = datetime.utcnow()
 
@@ -583,7 +654,7 @@ def force_reset_credit_card(user_id, account_id):
                 'id': account_id,
                 'name': card.get('name', 'Cartão'),
                 'old_balance': old_balance,
-                'new_balance': credit_limit,
+                'new_balance': correct_balance,
                 'credit_limit': credit_limit
             }
 
@@ -996,7 +1067,21 @@ def update_transaction(current_user, transaction_id):
     if ('account_id' in update_data or 'expense' in update_data or 'income' in update_data):
         account_id = update_data.get('account_id')
         if account_id:
-            recalculate_account_balance(user_id, account_id)
+            # Verificar se a conta é um cartão de crédito antes de recalcular
+            if db_manager.db is not None:
+                account = accounts_collection.find_one({
+                    '_id': ObjectId(account_id),
+                    'user_id': user_id
+                })
+            else:
+                account = next((a for a in memory_storage['accounts']
+                               if a['_id'] == account_id and a['user_id'] == user_id), None)
+            
+            # Se for cartão de crédito, não recalcular
+            if account and account.get('type') == 'cartao':
+                print(f"ℹ️ Pulando recalculo para cartão de crédito ao editar transação")
+            else:
+                recalculate_account_balance(user_id, account_id)
 
     return jsonify({'message': 'Transação atualizada com sucesso'})
 
@@ -1129,15 +1214,54 @@ def update_income(current_user, income_id):
         if 'account_id' in update_data and 'amount' in update_data:
             account_id = update_data['account_id']
             if account_id:
-                recalculate_account_balance(user_id, account_id)
+                # Verificar se é cartão de crédito
+                if db_manager.db is not None:
+                    account = accounts_collection.find_one({
+                        '_id': ObjectId(account_id),
+                        'user_id': user_id
+                    })
+                else:
+                    account = next((a for a in memory_storage['accounts']
+                                   if a['_id'] == account_id and a['user_id'] == user_id), None)
+                
+                if account and account.get('type') == 'cartao':
+                    print(f"ℹ️ Pulando recalculo para cartão de crédito ao atualizar receita")
+                else:
+                    recalculate_account_balance(user_id, account_id)
         elif 'amount' in update_data:
             account_id = update_data.get('account_id')
             if account_id:
-                recalculate_account_balance(user_id, account_id)
+                # Verificar se é cartão de crédito
+                if db_manager.db is not None:
+                    account = accounts_collection.find_one({
+                        '_id': ObjectId(account_id),
+                        'user_id': user_id
+                    })
+                else:
+                    account = next((a for a in memory_storage['accounts']
+                                   if a['_id'] == account_id and a['user_id'] == user_id), None)
+                
+                if account and account.get('type') == 'cartao':
+                    print(f"ℹ️ Pulando recalculo para cartão de crédito ao atualizar receita")
+                else:
+                    recalculate_account_balance(user_id, account_id)
         elif 'account_id' in update_data:
             new_account_id = update_data['account_id']
             if new_account_id:
-                recalculate_account_balance(user_id, new_account_id)
+                # Verificar se é cartão de crédito
+                if db_manager.db is not None:
+                    account = accounts_collection.find_one({
+                        '_id': ObjectId(new_account_id),
+                        'user_id': user_id
+                    })
+                else:
+                    account = next((a for a in memory_storage['accounts']
+                                   if a['_id'] == new_account_id and a['user_id'] == user_id), None)
+                
+                if account and account.get('type') == 'cartao':
+                    print(f"ℹ️ Pulando recalculo para cartão de crédito ao atualizar receita")
+                else:
+                    recalculate_account_balance(user_id, new_account_id)
 
     return jsonify({'message': 'Receita atualizada com sucesso'})
 
