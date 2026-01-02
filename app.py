@@ -331,14 +331,14 @@ def update_account_balance(user_id, account_id, amount_change):
             })
 
             if account:
-                # Se for cartão de crédito, o amount_change deve ser tratado de forma diferente
+                # Se for cartão de crédito, usar lógica invertida
                 if account.get('type') == 'cartao':
                     current_balance = account.get('balance', 0)
-                    # Para cartão de crédito:
-                    # - expense (gastos) devem DIMINUIR o limite disponível (amount_change será negativo)
-                    # - income (pagamentos/faturamento) devem AUMENTAR o limite disponível (amount_change será positivo)
-                    # A fórmula é: novo_balance = atual - expense (ou + income)
-                    new_balance = current_balance - amount_change
+                    # Para cartão de crédito, o comportamento é o mesmo de contas normais:
+                    # - expense (gastos) diminuem o limite (amount_change negativo)
+                    # - income (pagamentos) aumentam o limite (amount_change positivo)
+                    # A fórmula é simplesmente: atual + mudança
+                    new_balance = current_balance + amount_change
                     
                     accounts_collection.update_one(
                         {'_id': ObjectId(account_id), 'user_id': user_id},
@@ -347,7 +347,7 @@ def update_account_balance(user_id, account_id, amount_change):
                             'updated_at': datetime.utcnow()
                         }}
                     )
-                    print(f"💳 Cartão atualizado: {account.get('name')} | Anterior: R$ {current_balance} | Novo: R$ {new_balance}")
+                    print(f"💳 Cartão atualizado: {account.get('name')} | Anterior: R$ {current_balance} | Novo: R$ {new_balance} | Mudança: R$ {amount_change}")
                 else:
                     # Para outras contas, usar lógica normal (soma)
                     current_balance = account.get('balance', 0)
@@ -368,7 +368,7 @@ def update_account_balance(user_id, account_id, amount_change):
                 # Se for cartão de crédito, usar lógica específica
                 if account.get('type') == 'cartao':
                     current_balance = account.get('balance', 0)
-                    new_balance = current_balance - amount_change
+                    new_balance = current_balance + amount_change
                     account['balance'] = new_balance
                     account['updated_at'] = datetime.utcnow()
                     print(f"💳 Cartão atualizado (memory): {account.get('name')} | Anterior: R$ {current_balance} | Novo: R$ {new_balance}")
@@ -578,21 +578,25 @@ def force_reset_credit_card(user_id, account_id):
             old_balance = card.get('balance', 0)
 
             # Calcular o saldo correto com base nas transações
+            # Saldo do cartão = limite - gastos (ou limite + pagamentos)
             total_expenses = 0
             transactions_cursor = transactions_collection.find({
                 'user_id': user_id,
                 'account_id': account_id
             })
             for transaction in transactions_cursor:
-                total_expenses += transaction.get('expense', 0)
-                total_expenses -= transaction.get('income', 0)  # Pagamentos aumentam o limite disponível
+                expense = transaction.get('expense', 0)
+                income = transaction.get('income', 0)
+                # net_change = income - expense, mas para o saldo do cartão é expense - income
+                total_expenses += expense
+                total_expenses -= income  # Pagamentos aumentam o limite disponível
             
-            # O saldo correto é: limite - gastos (ou + pagamentos)
+            # O saldo correto é: limite - despesas + pagamentos
             correct_balance = credit_limit - total_expenses
 
             print(f"🔧 Correção de cartão: {card.get('name')}")
             print(f"   Limite: R$ {credit_limit}")
-            print(f"   Gastos líquidos: R$ {total_expenses}")
+            print(f"   Total despesas: R$ {total_expenses}")
             print(f"   Saldo antigo: R$ {old_balance}")
             print(f"   Saldo correto: R$ {correct_balance}")
 
@@ -1527,6 +1531,136 @@ def delete_account(current_user, account_id):
         memory_storage['accounts'].remove(account)
 
     return jsonify({'message': 'Conta excluída com sucesso'})
+
+
+# =====================================================
+# ENDPOINT DE DEBUG PARA CARTÃO DE CRÉDITO
+# =====================================================
+
+@app.route('/api/debug/credit-card/<account_id>', methods=['GET'])
+@token_required
+@with_connection_retry(max_retries=3)
+def debug_credit_card(current_user, account_id):
+    """Endpoint de debug para diagnosticar problemas no cartão de crédito"""
+    user_id = str(current_user['_id'])
+    
+    try:
+        # Buscar o cartão
+        if db_manager.db is not None:
+            card = accounts_collection.find_one({
+                '_id': ObjectId(account_id),
+                'user_id': user_id,
+                'type': 'cartao'
+            })
+            
+            if not card:
+                return jsonify({'message': 'Cartão não encontrado'}), 404
+            
+            # Buscar todas as transações do cartão
+            transactions = list(transactions_collection.find({
+                'user_id': user_id,
+                'account_id': account_id
+            }))
+            
+            # Calcular o saldo correto
+            total_expenses = 0
+            total_income = 0
+            
+            for t in transactions:
+                expense = t.get('expense', 0)
+                income = t.get('income', 0)
+                total_expenses += expense
+                total_income += income
+            
+            credit_limit = card.get('credit_limit', 0)
+            current_balance = card.get('balance', 0)
+            correct_balance = credit_limit - total_expenses + total_income
+            
+            return jsonify({
+                'debug_info': {
+                    'card_name': card.get('name'),
+                    'credit_limit': credit_limit,
+                    'current_balance_in_db': current_balance,
+                    'correct_balance': correct_balance,
+                    'difference': current_balance - correct_balance,
+                    'total_transactions': len(transactions),
+                    'total_expenses': total_expenses,
+                    'total_income': total_income,
+                    'is_balance_correct': current_balance == correct_balance
+                },
+                'transactions': serialize_doc(transactions)
+            })
+        else:
+            return jsonify({'message': 'Debug disponível apenas com MongoDB'}), 400
+            
+    except Exception as e:
+        return jsonify({'message': f'Erro: {str(e)}'}), 500
+
+
+@app.route('/api/debug/credit-card/<account_id>/fix', methods=['POST'])
+@token_required
+@with_connection_retry(max_retries=3)
+def fix_credit_card_balance(current_user, account_id):
+    """Endpoint para corrigir o saldo do cartão de crédito"""
+    user_id = str(current_user['_id'])
+    
+    try:
+        if db_manager.db is not None:
+            card = accounts_collection.find_one({
+                '_id': ObjectId(account_id),
+                'user_id': user_id,
+                'type': 'cartao'
+            })
+            
+            if not card:
+                return jsonify({'message': 'Cartão não encontrado'}), 404
+            
+            # Buscar todas as transações do cartão
+            transactions = list(transactions_collection.find({
+                'user_id': user_id,
+                'account_id': account_id
+            }))
+            
+            # Calcular o saldo correto
+            total_expenses = 0
+            total_income = 0
+            
+            for t in transactions:
+                expense = t.get('expense', 0)
+                income = t.get('income', 0)
+                total_expenses += expense
+                total_income += income
+            
+            credit_limit = card.get('credit_limit', 0)
+            old_balance = card.get('balance', 0)
+            correct_balance = credit_limit - total_expenses + total_income
+            
+            # Atualizar o saldo
+            accounts_collection.update_one(
+                {'_id': ObjectId(account_id)},
+                {'$set': {
+                    'balance': correct_balance,
+                    'updated_at': datetime.utcnow()
+                }}
+            )
+            
+            return jsonify({
+                'message': 'Saldo do cartão corrigido com sucesso!',
+                'fix_result': {
+                    'card_name': card.get('name'),
+                    'credit_limit': credit_limit,
+                    'old_balance': old_balance,
+                    'new_balance': correct_balance,
+                    'total_expenses': total_expenses,
+                    'total_income': total_income,
+                    'correction_amount': correct_balance - old_balance
+                }
+            })
+        else:
+            return jsonify({'message': 'Correção disponível apenas com MongoDB'}), 400
+            
+    except Exception as e:
+        return jsonify({'message': f'Erro: {str(e)}'}), 500
 
 
 # =====================================================
