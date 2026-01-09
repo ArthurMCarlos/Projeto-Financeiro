@@ -23,6 +23,10 @@
                     <span class="nav-icon">📊</span>
                     <span class="nav-text">Visão Geral</span>
                 </a>
+                <a href="#" class="nav-item" data-page="transfers">
+                    <span class="nav-icon">💸</span>
+                    <span class="nav-text">Transferências</span>
+                </a>
                 <a href="#" class="nav-item" data-page="incomes">
                     <span class="nav-icon">💵</span>
                     <span class="nav-text">Receitas</span>
@@ -67,6 +71,7 @@
                     <h2 id="pageTitle">Visão Geral</h2>
                 </div>
                 <div class="header-right">
+                    <button id="customizeDashboardBtn" class="btn-icon" title="Personalizar Dashboard">⚙️</button>
                     <span id="userInfo" class="user-info"></span>
                 </div>
             </header>
@@ -84,10 +89,65 @@
             <div class="page-content">
                 <!-- Overview Page -->
                 <div id="overview-page" class="page active">
+                    <!-- Controles de Personalização do Dashboard -->
+                    <div id="dashboardCustomizePanel" class="customize-panel" style="display: none;">
+                        <div class="customize-header">
+                            <h3>Personalizar Dashboard</h3>
+                            <button id="closeCustomizePanel" class="btn-icon">&times;</button>
+                        </div>
+                        <div class="customize-content">
+                            <p>Arraste os widgets para reorganizá-los. Os widgets marcados com ✅ estão visíveis.</p>
+                            <div class="widget-toggle-list">
+                                <label class="widget-toggle-item">
+                                    <input type="checkbox" data-widget="accountSelector" checked>
+                                    <span>Seletor de Conta</span>
+                                </label>
+                                <label class="widget-toggle-item">
+                                    <input type="checkbox" data-widget="creditCardAlerts" checked>
+                                    <span>Alertas de Cartão</span>
+                                </label>
+                                <label class="widget-toggle-item">
+                                    <input type="checkbox" data-widget="statsGrid" checked>
+                                    <span>Cartões de Estatísticas</span>
+                                </label>
+                                <label class="widget-toggle-item">
+                                    <input type="checkbox" data-widget="monthlyTrend" checked>
+                                    <span>Gráfico de Evolução Mensal</span>
+                                </label>
+                                <label class="widget-toggle-item">
+                                    <input type="checkbox" data-widget="categoryPie" checked>
+                                    <span>Gráfico por Categoria</span>
+                                </label>
+                                <label class="widget-toggle-item">
+                                    <input type="checkbox" data-widget="recentTransactions" checked>
+                                    <span>Transações Recentes</span>
+                                </label>
+                                <label class="widget-toggle-item">
+                                    <input type="checkbox" data-widget="goalsProgress" checked>
+                                    <span>Progresso das Metas</span>
+                                </label>
+                                <label class="widget-toggle-item">
+                                    <input type="checkbox" data-widget="accountsSummary" checked>
+                                    <span>Resumo das Contas</span>
+                                </label>
+                            </div>
+                            <div class="customize-actions">
+                                <button id="resetDashboardLayout" class="btn-secondary">Restaurar Padrão</button>
+                                <button id="saveDashboardLayout" class="btn-primary">Salvar Layout</button>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Seletor de Conta para Overview -->
-                    <div class="overview-account-selector">
-                        <div class="selector-header">
+                    <div id="accountSelectorWidget" class="widget-container draggable-widget">
+                        <div class="widget-header">
+                            <span class="drag-handle">⋮⋮</span>
                             <h3>🏦 Análise por Conta</h3>
+                            <label class="widget-visibility">
+                                <input type="checkbox" checked onchange="toggleWidgetVisibility('accountSelector')">
+                            </label>
+                        </div>
+                        <div class="widget-content">
                             <select id="overviewSelectedAccount" class="input">
                                 <option value="">Visão Geral (Todas as contas)</option>
                             </select>
@@ -95,92 +155,219 @@
                     </div>
 
                     <!-- Resumo da Conta Selecionada na Overview -->
-                    <div id="overviewAccountSummary" class="overview-account-summary" style="display: none;">
-                        <div class="summary-header">
+                    <div id="accountSummaryWidget" class="widget-container draggable-widget" style="display: none;">
+                        <div class="widget-header">
+                            <span class="drag-handle">⋮⋮</span>
                             <h4 id="overviewSummaryAccountName"></h4>
                             <span class="account-type-badge" id="overviewSummaryAccountType"></span>
+                            <label class="widget-visibility">
+                                <input type="checkbox" checked onchange="toggleWidgetVisibility('accountsSummary')">
+                            </label>
                         </div>
-                        <div class="overview-stats-grid">
-                            <div class="overview-stat-item">
-                                <div class="stat-icon">💰</div>
-                                <div class="stat-info">
-                                    <span class="stat-label">Saldo da Conta</span>
-                                    <span class="stat-value" id="overviewAccountBalance">R$ 0,00</span>
+                        <div class="widget-content">
+                            <div class="overview-stats-grid">
+                                <div class="overview-stat-item">
+                                    <div class="stat-icon">💰</div>
+                                    <div class="stat-info">
+                                        <span class="stat-label">Saldo da Conta</span>
+                                        <span class="stat-value" id="overviewAccountBalance">R$ 0,00</span>
+                                    </div>
                                 </div>
-                            </div>
-                            <div class="overview-stat-item">
-                                <div class="stat-icon">📈</div>
-                                <div class="stat-info">
-                                    <span class="stat-label">Receitas Mês</span>
-                                    <span class="stat-value" id="overviewAccountIncomes">R$ 0,00</span>
+                                <div class="overview-stat-item">
+                                    <div class="stat-icon">📈</div>
+                                    <div class="stat-info">
+                                        <span class="stat-label">Receitas Mês</span>
+                                        <span class="stat-value" id="overviewAccountIncomes">R$ 0,00</span>
+                                    </div>
                                 </div>
-                            </div>
-                            <div class="overview-stat-item">
-                                <div class="stat-icon">📉</div>
-                                <div class="stat-info">
-                                    <span class="stat-label">Despesas Mês</span>
-                                    <span class="stat-value" id="overviewAccountExpenses">R$ 0,00</span>
+                                <div class="overview-stat-item">
+                                    <div class="stat-icon">📉</div>
+                                    <div class="stat-info">
+                                        <span class="stat-label">Despesas Mês</span>
+                                        <span class="stat-value" id="overviewAccountExpenses">R$ 0,00</span>
+                                    </div>
                                 </div>
-                            </div>
-                            <div class="overview-stat-item">
-                                <div class="stat-icon">🎯</div>
-                                <div class="stat-info">
-                                    <span class="stat-label">Balanço Mês</span>
-                                    <span class="stat-value" id="overviewMonthBalance">R$ 0,00</span>
+                                <div class="overview-stat-item">
+                                    <div class="stat-icon">🎯</div>
+                                    <div class="stat-info">
+                                        <span class="stat-label">Balanço Mês</span>
+                                        <span class="stat-value" id="overviewMonthBalance">R$ 0,00</span>
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     </div>
 
                     <!-- Alerta de Cartões de Crédito -->
-                    <div id="creditCardAlerts" class="credit-card-alerts" style="display: none;"></div>
+                    <div id="creditCardAlertsWidget" class="widget-container draggable-widget" style="display: none;">
+                        <div class="widget-header">
+                            <span class="drag-handle">⋮⋮</span>
+                            <h3>💳 Alertas de Cartão</h3>
+                            <label class="widget-visibility">
+                                <input type="checkbox" checked onchange="toggleWidgetVisibility('creditCardAlerts')">
+                            </label>
+                        </div>
+                        <div class="widget-content">
+                            <div id="creditCardAlerts" class="credit-card-alerts"></div>
+                        </div>
+                    </div>
 
-                    <section class="stats-grid">
-                        <div class="stat-card">
-                            <div class="stat-icon">💰</div>
-                            <div class="stat-content">
-                                <h3>Saldo Total</h3>
-                                <p id="totalBalance" class="stat-value">R$ 0,00</p>
+                    <!-- Cartões de Estatísticas -->
+                    <section id="statsGridWidget" class="widget-container draggable-widget">
+                        <div class="widget-header">
+                            <span class="drag-handle">⋮⋮</span>
+                            <h3>📊 Resumo Financeiro</h3>
+                            <label class="widget-visibility">
+                                <input type="checkbox" checked onchange="toggleWidgetVisibility('statsGrid')">
+                            </label>
+                        </div>
+                        <div class="widget-content">
+                            <section class="stats-grid">
+                                <div class="stat-card">
+                                    <div class="stat-icon">💰</div>
+                                    <div class="stat-content">
+                                        <h3>Saldo Total</h3>
+                                        <p id="totalBalance" class="stat-value">R$ 0,00</p>
+                                    </div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-icon">📈</div>
+                                    <div class="stat-content">
+                                        <h3>Receitas do Mês</h3>
+                                        <p id="monthIncome" class="stat-value">R$ 0,00</p>
+                                    </div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-icon">📉</div>
+                                    <div class="stat-content">
+                                        <h3>Despesas do Mês</h3>
+                                        <p id="monthExpense" class="stat-value">R$ 0,00</p>
+                                    </div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-icon">🎯</div>
+                                    <div class="stat-content">
+                                        <h3>Economia do Mês</h3>
+                                        <p id="monthSavings" class="stat-value">R$ 0,00</p>
+                                    </div>
+                                </div>
+                            </section>
+                        </div>
+                    </section>
+
+                    <!-- Gráficos -->
+                    <section id="chartsWidget" class="charts-section draggable-widget">
+                        <div class="widget-container full-width">
+                            <div class="widget-header">
+                                <span class="drag-handle">⋮⋮</span>
+                                <h3>📈 Evolução Mensal</h3>
+                                <label class="widget-visibility">
+                                    <input type="checkbox" checked onchange="toggleWidgetVisibility('monthlyTrend')">
+                                </label>
+                            </div>
+                            <div class="widget-content">
+                                <canvas id="monthlyTrendChart"></canvas>
                             </div>
                         </div>
-                        <div class="stat-card">
-                            <div class="stat-icon">📈</div>
-                            <div class="stat-content">
-                                <h3>Receitas do Mês</h3>
-                                <p id="monthIncome" class="stat-value">R$ 0,00</p>
+                        <div class="widget-container full-width">
+                            <div class="widget-header">
+                                <span class="drag-handle">⋮⋮</span>
+                                <h3>🥧 Gastos por Categoria</h3>
+                                <label class="widget-visibility">
+                                    <input type="checkbox" checked onchange="toggleWidgetVisibility('categoryPie')">
+                                </label>
                             </div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-icon">📉</div>
-                            <div class="stat-content">
-                                <h3>Despesas do Mês</h3>
-                                <p id="monthExpense" class="stat-value">R$ 0,00</p>
-                            </div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-icon">🎯</div>
-                            <div class="stat-content">
-                                <h3>Economia do Mês</h3>
-                                <p id="monthSavings" class="stat-value">R$ 0,00</p>
+                            <div class="widget-content">
+                                <canvas id="categoryPieChart"></canvas>
                             </div>
                         </div>
                     </section>
 
-                    <section class="charts-section">
-                        <div class="chart-card">
-                            <h3>Evolução Mensal</h3>
-                            <canvas id="monthlyTrendChart"></canvas>
+                    <!-- Transações Recentes -->
+                    <section id="recentTransactionsWidget" class="widget-container draggable-widget full-width">
+                        <div class="widget-header">
+                            <span class="drag-handle">⋮⋮</span>
+                            <h3>💳 Transações Recentes</h3>
+                            <label class="widget-visibility">
+                                <input type="checkbox" checked onchange="toggleWidgetVisibility('recentTransactions')">
+                            </label>
                         </div>
-                        <div class="chart-card">
-                            <h3>Gastos por Categoria</h3>
-                            <canvas id="categoryPieChart"></canvas>
+                        <div class="widget-content">
+                            <div id="recentTransactions" class="transactions-list"></div>
                         </div>
                     </section>
 
-                    <section class="recent-section">
-                        <h3>Transações Recentes</h3>
-                        <div id="recentTransactions" class="transactions-list"></div>
+                    <!-- Progresso das Metas -->
+                    <section id="goalsProgressWidget" class="widget-container draggable-widget full-width" style="display: none;">
+                        <div class="widget-header">
+                            <span class="drag-handle">⋮⋮</span>
+                            <h3>🎯 Progresso das Metas</h3>
+                            <label class="widget-visibility">
+                                <input type="checkbox" checked onchange="toggleWidgetVisibility('goalsProgress')">
+                            </label>
+                        </div>
+                        <div class="widget-content">
+                            <div id="dashboardGoalsList" class="goals-grid"></div>
+                        </div>
                     </section>
+                </div>
+
+                <!-- Transfers Page -->
+                <div id="transfers-page" class="page">
+                    <div class="page-header">
+                        <h3>Transferências entre Contas</h3>
+                        <button id="newTransferBtn" class="btn-primary">+ Nova Transferência</button>
+                    </div>
+                    <div class="info-banner">
+                        <strong>💡 Transferências:</strong> Realize transferências entre suas contas.
+                        Mova valores da conta corrente para investimento, poupança ou qualquer outra conta.
+                        As transferências são processadas instantaneamente.
+                    </div>
+                    <div class="transfers-stats">
+                        <div class="transfer-stat-card">
+                            <div class="stat-icon">📤</div>
+                            <div class="stat-content">
+                                <h4>Total Enviado</h4>
+                                <p id="totalSent" class="stat-value">R$ 0,00</p>
+                            </div>
+                        </div>
+                        <div class="transfer-stat-card">
+                            <div class="stat-icon">📥</div>
+                            <div class="stat-content">
+                                <h4>Total Recebido</h4>
+                                <p id="totalReceived" class="stat-value">R$ 0,00</p>
+                            </div>
+                        </div>
+                        <div class="transfer-stat-card">
+                            <div class="stat-icon">💱</div>
+                            <div class="stat-content">
+                                <h4>Total Transferido</h4>
+                                <p id="netTransfer" class="stat-value">R$ 0,00</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="filters">
+                        <div class="filter-group">
+                            <label for="transferMonthFilter">Mês:</label>
+                            <input type="month" id="transferMonthFilter" class="input">
+                        </div>
+                        <button id="clearTransferFilters" class="btn-secondary btn-sm">Limpar</button>
+                    </div>
+                    <div class="table-container">
+                        <table id="transfersTable">
+                            <thead>
+                                <tr>
+                                    <th>Data</th>
+                                    <th>Conta de Origem</th>
+                                    <th>Conta de Destino</th>
+                                    <th>Valor</th>
+                                    <th>Status</th>
+                                    <th>Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
                 </div>
 
                 <!-- Incomes Page -->
@@ -363,6 +550,61 @@
                         </div>
                     </div>
 
+                    <!-- Filtros Avançados de Relatório -->
+                    <section class="advanced-filters">
+                        <h3>Filtros Avançados</h3>
+                        <div class="filter-row">
+                            <div class="filter-group">
+                                <label for="reportStartDate">Data Inicial:</label>
+                                <input type="date" id="reportStartDate" class="input">
+                            </div>
+                            <div class="filter-group">
+                                <label for="reportEndDate">Data Final:</label>
+                                <input type="date" id="reportEndDate" class="input">
+                            </div>
+                            <div class="filter-group">
+                                <label for="reportAccount">Conta:</label>
+                                <select id="reportAccount" class="input">
+                                    <option value="">Todas as contas</option>
+                                </select>
+                            </div>
+                            <div class="filter-group">
+                                <label for="reportCategory">Categoria:</label>
+                                <select id="reportCategory" class="input">
+                                    <option value="">Todas as categorias</option>
+                                </select>
+                            </div>
+                            <div class="filter-actions">
+                                <button id="applyAdvancedFilters" class="btn-primary">Aplicar Filtros</button>
+                                <button id="resetAdvancedFilters" class="btn-secondary">Limpar</button>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- Resumo Executivo -->
+                    <section id="executiveSummary" class="executive-summary">
+                        <h3>Resumo Executivo</h3>
+                        <div class="summary-cards">
+                            <div class="summary-card">
+                                <h4>Receita Total</h4>
+                                <p id="execTotalIncome" class="stat-value positive">R$ 0,00</p>
+                            </div>
+                            <div class="summary-card">
+                                <h4>Despesa Total</h4>
+                                <p id="execTotalExpense" class="stat-value negative">R$ 0,00</p>
+                            </div>
+                            <div class="summary-card">
+                                <h4>Saldo Líquido</h4>
+                                <p id="execNetBalance" class="stat-value">R$ 0,00</p>
+                            </div>
+                            <div class="summary-card">
+                                <h4>Média Diária</h4>
+                                <p id="execDailyAverage" class="stat-value">R$ 0,00</p>
+                            </div>
+                        </div>
+                    </section>
+
+                    <!-- Comparação Mês a Mês -->
                     <section class="comparison-section">
                         <h3>Comparação Mês a Mês</h3>
                         <div class="comparison-filters">
@@ -372,6 +614,33 @@
                             <button id="compareBtn" class="btn-primary">Comparar</button>
                         </div>
                         <div id="comparisonResults" class="comparison-results"></div>
+                    </section>
+
+                    <!-- Análise de Tendências -->
+                    <section id="trendsAnalysis" class="trends-section">
+                        <h3>Análise de Tendências</h3>
+                        <div class="trends-grid">
+                            <div class="trend-card">
+                                <h4>Maior Receita</h4>
+                                <p id="trendHighestIncome">-</p>
+                                <small id="trendHighestIncomeDate"></small>
+                            </div>
+                            <div class="trend-card">
+                                <h4>Maior Despesa</h4>
+                                <p id="trendHighestExpense">-</p>
+                                <small id="trendHighestExpenseDate"></small>
+                            </div>
+                            <div class="trend-card">
+                                <h4>Categoria Mais Gasta</h4>
+                                <p id="trendTopCategory">-</p>
+                                <small id="trendTopCategoryAmount"></small>
+                            </div>
+                            <div class="trend-card">
+                                <h4>Dias com Maior Gasto</h4>
+                                <p id="trendTopDay">-</p>
+                                <small id="trendTopDayAmount"></small>
+                            </div>
+                        </div>
                     </section>
 
                     <section class="charts-section">
@@ -384,9 +653,65 @@
                             <canvas id="expenseDistributionChart"></canvas>
                         </div>
                     </section>
+
+                    <!-- Gráfico de Tendência deReceitas vs Despesas -->
+                    <section class="charts-section">
+                        <div class="chart-card full-width">
+                            <h3>Receitas vs Despesas</h3>
+                            <canvas id="incomeVsExpenseChart"></canvas>
+                        </div>
+                    </section>
                 </div>
             </div>
         </main>
+    </div>
+
+    <!-- Transfer Modal -->
+    <div id="transferModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2 id="transferModalTitle">Nova Transferência</h2>
+            <form id="transferForm">
+                <input type="hidden" id="transferId">
+                <div class="form-group">
+                    <label for="transferDate">Data:</label>
+                    <input type="date" id="transferDate" required class="input">
+                </div>
+                <div class="form-group">
+                    <label for="transferFromAccount">Da Conta (Origem):</label>
+                    <select id="transferFromAccount" required class="input"></select>
+                </div>
+                <div class="form-group">
+                    <label for="transferToAccount">Para a Conta (Destino):</label>
+                    <select id="transferToAccount" required class="input"></select>
+                </div>
+                <div class="form-group">
+                    <label for="transferAmount">Valor (R$):</label>
+                    <input type="number" id="transferAmount" step="0.01" min="0.01" required class="input">
+                </div>
+                <div class="form-group">
+                    <label for="transferDescription">Descrição (opcional):</label>
+                    <input type="text" id="transferDescription" class="input" placeholder="Ex: Transferência para investimento">
+                </div>
+                <div id="transferValidation" class="validation-message" style="display: none;"></div>
+                <div class="form-actions">
+                    <button type="submit" class="btn-primary">Confirmar Transferência</button>
+                    <button type="button" class="btn-secondary" onclick="closeTransferModal()">Cancelar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Transfer Details Modal -->
+    <div id="transferDetailsModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h2>Detalhes da Transferência</h2>
+            <div id="transferDetailsContent" class="transfer-details"></div>
+            <div class="form-actions">
+                <button type="button" class="btn-secondary" onclick="closeTransferDetailsModal()">Fechar</button>
+            </div>
+        </div>
     </div>
 
     <!-- Income Modal -->
