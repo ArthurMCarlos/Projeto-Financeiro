@@ -1089,6 +1089,9 @@ function openIncomeModal(income = null) {
 
     form.reset();
 
+    // Limpar campo de ID explicitamente
+    document.getElementById('incomeId').value = '';
+
     if (income) {
         document.getElementById('incomeModalTitle').textContent = 'Editar Receita';
         document.getElementById('incomeId').value = income._id;
@@ -1106,7 +1109,15 @@ function openIncomeModal(income = null) {
 }
 
 function closeIncomeModal() {
-    document.getElementById('incomeModal').style.display = 'none';
+    const modal = document.getElementById('incomeModal');
+    const form = document.getElementById('incomeForm');
+
+    modal.style.display = 'none';
+
+    // Limpar formulário completamente
+    form.reset();
+    document.getElementById('incomeId').value = '';
+    document.getElementById('incomeModalTitle').textContent = 'Nova Receita';
 }
 
 async function saveIncome(event) {
@@ -1120,28 +1131,45 @@ async function saveIncome(event) {
         account_id: document.getElementById('incomeAccount').value || null
     };
 
+    // Validação básica
+    if (!incomeData.month || !incomeData.source || isNaN(incomeData.amount) || incomeData.amount <= 0) {
+        showToast('Por favor, preencha todos os campos corretamente', 'error');
+        return;
+    }
+
+    // Mostrar loading
+    const submitBtn = event.target.querySelector('button[type="submit"]');
+    const originalText = submitBtn.textContent;
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Salvando...';
+
     try {
         if (incomeId) {
             await apiCall(`/api/incomes/${incomeId}`, {
                 method: 'PUT',
                 body: JSON.stringify(incomeData)
             });
+            showToast('Receita atualizada com sucesso!', 'success');
         } else {
             await apiCall('/api/incomes', {
                 method: 'POST',
                 body: JSON.stringify(incomeData)
             });
+            showToast('Receita salva com sucesso!', 'success');
         }
 
         closeIncomeModal();
-        await loadIncomes();
-        await loadAccounts(); // Recarrega as contas para atualizar os saldos
-        recalculateAllBalances(); // Recalcula todos os saldos automaticamente
-        updateOverview();
-        showNotification('Receita salva com sucesso!', 'success');
+
+        // Usar refreshAllData para garantir atualização completa dos dados
+        await refreshAllData();
+
     } catch (error) {
         console.error('Erro ao salvar receita:', error);
-        showNotification('Erro ao salvar receita', 'error');
+        showToast('Erro ao salvar receita: ' + error.message, 'error');
+    } finally {
+        // Restaurar botão
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalText;
     }
 }
 
@@ -1162,14 +1190,13 @@ async function deleteIncome(incomeId) {
             method: 'DELETE'
         });
 
-        await loadIncomes();
-        await loadAccounts(); // Recarrega as contas para atualizar os saldos
-        recalculateAllBalances(); // Recalcula todos os saldos automaticamente
-        updateOverview();
-        showNotification('Receita excluída com sucesso!', 'success');
+        showToast('Receita excluída com sucesso!', 'success');
+
+        // Usar refreshAllData para garantir atualização completa dos dados
+        await refreshAllData();
     } catch (error) {
         console.error('Erro ao excluir receita:', error);
-        showNotification('Erro ao excluir receita', 'error');
+        showToast('Erro ao excluir receita: ' + error.message, 'error');
     }
 }
 
@@ -1374,14 +1401,13 @@ async function deleteExpense(expenseId) {
             method: 'DELETE'
         });
 
-        await loadTransactions();
-        await loadAccounts(); // Recarrega as contas para atualizar os saldos
-        recalculateAllBalances(); // Recalcula todos os saldos automaticamente
-        updateOverview();
-        showNotification('Despesa excluída com sucesso!', 'success');
+        showToast('Despesa excluída com sucesso!', 'success');
+
+        // Usar refreshAllData para garantir atualização completa dos dados
+        await refreshAllData();
     } catch (error) {
         console.error('Erro ao excluir despesa:', error);
-        showNotification('Erro ao excluir despesa', 'error');
+        showToast('Erro ao excluir despesa: ' + error.message, 'error');
     }
 }
 
@@ -1613,23 +1639,44 @@ async function saveBudget(event) {
         amount: parseFloat(document.getElementById('budgetAmount').value)
     };
 
+    // Validação básica
+    if (!budgetData.month || !budgetData.category_id || isNaN(budgetData.amount) || budgetData.amount <= 0) {
+        showToast('Por favor, preencha todos os campos corretamente', 'error');
+        return;
+    }
+
+    // Mostrar loading
+    const submitBtn = event.target.querySelector('button[type="submit"]');
+    const originalText = submitBtn.textContent;
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Salvando...';
+
     try {
         if (budgetId) {
             await apiCall(`/api/budgets/${budgetId}`, {
                 method: 'PUT',
                 body: JSON.stringify(budgetData)
             });
+            showToast('Orçamento atualizado com sucesso!', 'success');
         } else {
             await apiCall('/api/budgets', {
                 method: 'POST',
                 body: JSON.stringify(budgetData)
             });
+            showToast('Orçamento criado com sucesso!', 'success');
         }
 
         closeBudgetModal();
-        await loadBudgets();
+
+        // Usar refreshAllData para garantir atualização completa dos dados
+        await refreshAllData();
     } catch (error) {
         console.error('Erro ao salvar orçamento:', error);
+        showToast('Erro ao salvar orçamento: ' + error.message, 'error');
+    } finally {
+        // Restaurar botão
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalText;
     }
 }
 
@@ -1650,9 +1697,13 @@ async function deleteBudget(budgetId) {
             method: 'DELETE'
         });
 
-        await loadBudgets();
+        showToast('Orçamento excluído com sucesso!', 'success');
+
+        // Usar refreshAllData para garantir atualização completa dos dados
+        await refreshAllData();
     } catch (error) {
         console.error('Erro ao excluir orçamento:', error);
+        showToast('Erro ao excluir orçamento: ' + error.message, 'error');
     }
 }
 
@@ -1804,10 +1855,21 @@ async function saveAccount(event) {
         type: accountType
     };
 
+    // Validação básica
+    if (!accountData.name) {
+        showToast('O nome da conta é obrigatório', 'error');
+        return;
+    }
+
     // Adicionar campos específicos baseado no tipo
     if (accountType === 'cartao') {
         const creditLimit = parseFloat(document.getElementById('accountCreditLimit').value) || 0;
         const closingDay = parseInt(document.getElementById('accountClosingDay').value) || 1;
+
+        if (creditLimit <= 0) {
+            showToast('O limite do cartão deve ser maior que zero', 'error');
+            return;
+        }
 
         accountData.credit_limit = creditLimit;
         accountData.closing_day = closingDay;
@@ -1816,27 +1878,38 @@ async function saveAccount(event) {
         accountData.balance = parseFloat(document.getElementById('accountBalance').value) || 0;
     }
 
+    // Mostrar loading
+    const submitBtn = event.target.querySelector('button[type="submit"]');
+    const originalText = submitBtn.textContent;
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Salvando...';
+
     try {
         if (accountId) {
             await apiCall(`/api/accounts/${accountId}`, {
                 method: 'PUT',
                 body: JSON.stringify(accountData)
             });
-            showNotification('Conta atualizada com sucesso!', 'success');
+            showToast('Conta atualizada com sucesso!', 'success');
         } else {
             await apiCall('/api/accounts', {
                 method: 'POST',
                 body: JSON.stringify(accountData)
             });
-            showNotification('Conta criada com sucesso!', 'success');
+            showToast('Conta criada com sucesso!', 'success');
         }
 
         closeAccountModal();
-        await loadAccounts();
-        updateOverview();
+
+        // Usar refreshAllData para garantir atualização completa dos dados
+        await refreshAllData();
     } catch (error) {
         console.error('Erro ao salvar conta:', error);
-        showNotification('Erro ao salvar conta', 'error');
+        showToast('Erro ao salvar conta: ' + error.message, 'error');
+    } finally {
+        // Restaurar botão
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalText;
     }
 }
 
@@ -1857,12 +1930,13 @@ async function deleteAccount(accountId) {
             method: 'DELETE'
         });
 
-        await loadAccounts();
-        updateOverview();
-        showNotification('Conta excluída com sucesso!', 'success');
+        showToast('Conta excluída com sucesso!', 'success');
+
+        // Usar refreshAllData para garantir atualização completa dos dados
+        await refreshAllData();
     } catch (error) {
         console.error('Erro ao excluir conta:', error);
-        showNotification('Erro ao excluir conta', 'error');
+        showToast('Erro ao excluir conta: ' + error.message, 'error');
     }
 }
 
@@ -1956,23 +2030,42 @@ async function saveGoal(event) {
         deadline: document.getElementById('goalDeadline').value
     };
 
+    // Validação básica
+    if (!goalData.name || isNaN(goalData.target_amount) || goalData.target_amount <= 0 || !goalData.deadline) {
+        showToast('Por favor, preencha todos os campos corretamente', 'error');
+        return;
+    }
+
+    // Mostrar loading
+    const submitBtn = event.target.querySelector('button[type="submit"]');
+    const originalText = submitBtn.textContent;
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Salvando...';
+
     try {
         if (goalId) {
             await apiCall(`/api/goals/${goalId}`, {
                 method: 'PUT',
                 body: JSON.stringify(goalData)
             });
+            showToast('Meta atualizada com sucesso!', 'success');
         } else {
             await apiCall('/api/goals', {
                 method: 'POST',
                 body: JSON.stringify(goalData)
             });
+            showToast('Meta criada com sucesso!', 'success');
         }
 
         closeGoalModal();
         await loadGoals();
     } catch (error) {
         console.error('Erro ao salvar meta:', error);
+        showToast('Erro ao salvar meta: ' + error.message, 'error');
+    } finally {
+        // Restaurar botão
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalText;
     }
 }
 
@@ -1993,9 +2086,11 @@ async function deleteGoal(goalId) {
             method: 'DELETE'
         });
 
+        showToast('Meta excluída com sucesso!', 'success');
         await loadGoals();
     } catch (error) {
         console.error('Erro ao excluir meta:', error);
+        showToast('Erro ao excluir meta: ' + error.message, 'error');
     }
 }
 
@@ -2264,19 +2359,31 @@ async function saveCategory(event) {
         description: document.getElementById('categoryDescription').value
     };
 
+    // Validação básica
+    if (!categoryData.name) {
+        showToast('O nome da categoria é obrigatório', 'error');
+        return;
+    }
+
+    // Mostrar loading
+    const submitBtn = event.target.querySelector('button[type="submit"]');
+    const originalText = submitBtn.textContent;
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Salvando...';
+
     try {
         if (categoryId) {
             await apiCall(`/api/categories/${categoryId}`, {
                 method: 'PUT',
                 body: JSON.stringify(categoryData)
             });
-            showNotification('Categoria atualizada com sucesso!', 'success');
+            showToast('Categoria atualizada com sucesso!', 'success');
         } else {
             await apiCall('/api/categories', {
                 method: 'POST',
                 body: JSON.stringify(categoryData)
             });
-            showNotification('Categoria criada com sucesso!', 'success');
+            showToast('Categoria criada com sucesso!', 'success');
         }
 
         await loadCategories();
@@ -2286,7 +2393,11 @@ async function saveCategory(event) {
         updateOverview();
     } catch (error) {
         console.error('Erro ao salvar categoria:', error);
-        showNotification(error.message || 'Erro ao salvar categoria', 'error');
+        showToast(error.message || 'Erro ao salvar categoria', 'error');
+    } finally {
+        // Restaurar botão
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalText;
     }
 }
 
@@ -2307,13 +2418,14 @@ async function deleteCategory(categoryId) {
             method: 'DELETE'
         });
 
+        showToast('Categoria excluída com sucesso!', 'success');
+
         await loadCategories();
         displayCategories();
         updateCategorySelects();
-        showNotification('Categoria excluída com sucesso!', 'success');
     } catch (error) {
         console.error('Erro ao excluir categoria:', error);
-        showNotification(error.message || 'Erro ao excluir categoria', 'error');
+        showToast(error.message || 'Erro ao excluir categoria', 'error');
     }
 }
 
