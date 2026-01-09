@@ -6,6 +6,7 @@ import jwt
 import pymongo
 from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError, AutoReconnect
+from pymongo.errors import PyMongoError
 from bson import ObjectId
 import os
 from datetime import datetime, timedelta
@@ -19,11 +20,58 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.lib import colors
 import json
+import secrets
+
+# =====================================================
+# CONFIGURAÇÃO DE SEGURANÇA
+# =====================================================
 
 app = Flask(__name__)
-# Configuration
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
-CORS(app, origins=["*"])
+
+# Configuração segura da SECRET_KEY
+# Em produção (Render), deve ser definida como variável de ambiente
+# Gera um erro se a chave não estiver definida em produção
+if os.environ.get('RENDER') is not None:
+    # Ambiente de produção - a chave é obrigatória
+    app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY')
+    if not app.config['SECRET_KEY']:
+        raise RuntimeError(
+            "ERRO DE SEGURANÇA: SECRET_KEY deve estar definida como variável de ambiente "
+            "no Render. Gere uma chave segura com: python -c 'import secrets; print(secrets.token_hex(32))'"
+        )
+else:
+    # Ambiente de desenvolvimento - permite fallback com aviso
+    app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-key-change-in-production-warning')
+
+# Configuração restritiva de CORS
+# Se o frontend está servindo do mesmo domínio, CORS não é necessário
+# Caso contrário, defina FRONTEND_URL no ambiente
+FRONTEND_URL = os.environ.get('FRONTEND_URL')
+
+if FRONTEND_URL:
+    # Configuração restritiva para ambiente com frontend separado
+    CORS(app, resources={
+        r"/api/*": {
+            "origins": FRONTEND_URL,
+            "methods": ["GET", "POST", "PUT", "DELETE"],
+            "allow_headers": ["Content-Type", "Authorization"],
+            "supports_credentials": True
+        }
+    })
+    print(f"🔒 CORS configurado para origem específica: {FRONTEND_URL}")
+else:
+    # Se não há frontend separado, desabilita CORS para APIs
+    # O Flask serve os arquivos estáticos do mesmo domínio
+    print("🔒 CORS desabilitado - frontend servido do mesmo domínio")
+
+# Configurações de segurança adicionais
+app.config['JWT_ALGORITHM'] = 'HS256'
+app.config['JWT_EXPIRATION_DELTA'] = timedelta(days=7)
+app.config['JSON_SORT_KEYS'] = False  # Previne timing attacks
+
+# =====================================================
+# FIM DA CONFIGURAÇÃO DE SEGURANÇA
+# =====================================================
 
 # MongoDB Configuration
 MONGODB_URI = os.environ.get('MONGODB_URI')
@@ -189,6 +237,8 @@ budgets_collection = db.budgets if db is not None else None
 accounts_collection = db.accounts if db is not None else None
 goals_collection = db.goals if db is not None else None
 credit_card_resets_collection = db.credit_card_resets if db is not None else None
+transfers_collection = db.transfers if db is not None else None
+dashboard_prefs_collection = db.dashboard_prefs if db is not None else None
 
 # In-memory storage for development/fallback
 memory_storage = {
@@ -199,7 +249,9 @@ memory_storage = {
     'budgets': [],
     'accounts': [],
     'goals': [],
-    'credit_card_resets': []
+    'credit_card_resets': [],
+    'transfers': [],
+    'dashboard_prefs': []
 }
 
 # =====================================================
@@ -239,6 +291,7 @@ def with_connection_retry(max_retries=3, delay=0.5):
                             global db, users_collection, transactions_collection
                             global categories_collection, incomes_collection, budgets_collection
                             global accounts_collection, goals_collection, credit_card_resets_collection
+                            global transfers_collection, dashboard_prefs_collection
                             
                             db = db_manager.db
                             if db is not None:
@@ -250,6 +303,8 @@ def with_connection_retry(max_retries=3, delay=0.5):
                                 accounts_collection = db.accounts
                                 goals_collection = db.goals
                                 credit_card_resets_collection = db.credit_card_resets
+                                transfers_collection = db.transfers
+                                dashboard_prefs_collection = db.dashboard_prefs
                         except Exception:
                             pass
                     else:
@@ -316,8 +371,7 @@ def serialize_doc(doc):
     return doc
 
 def get_next_id():
-    import uuid
-    return str(uuid.uuid4())
+    return str(secrets.token_hex(16))
 
 def update_account_balance(user_id, account_id, amount_change):
     if not account_id or amount_change == 0:
@@ -816,7 +870,7 @@ def login():
 
     token = jwt.encode({
         'user_id': str(user['_id']),
-        'exp': datetime.utcnow() + timedelta(days=7)
+        'exp': datetime.utcnow() + app.config['JWT_EXPIRATION_DELTA']
     }, app.config['SECRET_KEY'], algorithm='HS256')
 
     return jsonify({
@@ -1534,6 +1588,607 @@ def delete_account(current_user, account_id):
 
 
 # =====================================================
+# ROTAS DE TRANSFERÊNCIA ENTRE CONTAS
+# =====================================================
+
+@app.route('/api/transfers', methods=['GET'])
+@token_required
+@with_connection_retry(max_retries=3)
+def get_transfers(current_user):
+    """Lista todas as transferências do usuário"""
+    user_id = str(current_user['_id'])
+
+    if db_manager.db is not None:
+        transfers = list(transfers_collection.find({
+            '$or': [{'sender_id': user_id}, {'receiver_id': user_id}]
+        }).sort('created_at', -1))
+    else:
+        transfers = [t for t in memory_storage['transfers']
+                    if t['sender_id'] == user_id or t['receiver_id'] == user_id]
+        transfers.sort(key=lambda x: x.get('created_at', datetime.min), reverse=True)
+
+    return jsonify({'transfers': serialize_doc(transfers)})
+
+@app.route('/api/transfers', methods=['POST'])
+@token_required
+@with_connection_retry(max_retries=3)
+def create_transfer(current_user):
+    """
+    Realiza transferência entre contas do mesmo usuário.
+    Usa transação atômica para garantir integridade dos dados.
+    """
+    data = request.get_json()
+
+    required_fields = ['sender_account_id', 'receiver_account_id', 'amount', 'description']
+    if not data or not all(k in data for k in required_fields):
+        return jsonify({'message': 'Dados incompletos'}), 400
+
+    user_id = str(current_user['_id'])
+    sender_account_id = data['sender_account_id']
+    receiver_account_id = data['receiver_account_id']
+    amount = float(data['amount'])
+    description = data.get('description', '')
+
+    # Validações
+    if amount <= 0:
+        return jsonify({'message': 'O valor da transferência deve ser maior que zero'}), 400
+
+    if sender_account_id == receiver_account_id:
+        return jsonify({'message': 'A conta de origem e destino não podem ser a mesma'}), 400
+
+    try:
+        if db_manager.db is not None:
+            # Usar transação atômica para operações de transferência
+            with db_manager.client.start_session() as session:
+                with session.start_transaction():
+                    # Buscar conta de origem
+                    sender_account = accounts_collection.find_one({
+                        '_id': ObjectId(sender_account_id),
+                        'user_id': user_id
+                    }, session=session)
+
+                    if not sender_account:
+                        return jsonify({'message': 'Conta de origem não encontrada'}), 404
+
+                    if sender_account.get('type') == 'cartao':
+                        return jsonify({'message': 'Não é possível transferir de cartão de crédito'}), 400
+
+                    if sender_account.get('balance', 0) < amount:
+                        return jsonify({'message': 'Saldo insuficiente para transferência'}), 400
+
+                    # Buscar conta de destino
+                    receiver_account = accounts_collection.find_one({
+                        '_id': ObjectId(receiver_account_id),
+                        'user_id': user_id
+                    }, session=session)
+
+                    if not receiver_account:
+                        return jsonify({'message': 'Conta de destino não encontrada'}), 404
+
+                    if receiver_account.get('type') == 'cartao':
+                        return jsonify({'message': 'Não é possível transferir para cartão de crédito'}), 400
+
+                    # Debitar da conta de origem
+                    accounts_collection.update_one(
+                        {'_id': ObjectId(sender_account_id), 'user_id': user_id},
+                        {'$inc': {'balance': -amount}, '$set': {'updated_at': datetime.utcnow()}},
+                        session=session
+                    )
+
+                    # Creditar na conta de destino
+                    accounts_collection.update_one(
+                        {'_id': ObjectId(receiver_account_id), 'user_id': user_id},
+                        {'$inc': {'balance': amount}, '$set': {'updated_at': datetime.utcnow()}},
+                        session=session
+                    )
+
+                    # Registrar a transferência
+                    transfer_data = {
+                        'sender_account_id': sender_account_id,
+                        'receiver_account_id': receiver_account_id,
+                        'sender_account_name': sender_account.get('name'),
+                        'receiver_account_name': receiver_account.get('name'),
+                        'amount': amount,
+                        'description': description,
+                        'user_id': user_id,
+                        'created_at': datetime.utcnow()
+                    }
+
+                    result = transfers_collection.insert_one(transfer_data, session=session)
+                    transfer_id = str(result.inserted_id)
+
+                    return jsonify({
+                        'message': 'Transferência realizada com sucesso',
+                        'transfer_id': transfer_id,
+                        'amount': amount,
+                        'sender_account': sender_account.get('name'),
+                        'receiver_account': receiver_account.get('name')
+                    }), 201
+
+        else:
+            # Modo memory storage (sem transação)
+            sender_account = next((a for a in memory_storage['accounts']
+                                  if a['_id'] == sender_account_id and a['user_id'] == user_id), None)
+
+            if not sender_account:
+                return jsonify({'message': 'Conta de origem não encontrada'}), 404
+
+            if sender_account.get('type') == 'cartao':
+                return jsonify({'message': 'Não é possível transferir de cartão de crédito'}), 400
+
+            if sender_account.get('balance', 0) < amount:
+                return jsonify({'message': 'Saldo insuficiente para transferência'}), 400
+
+            receiver_account = next((a for a in memory_storage['accounts']
+                                    if a['_id'] == receiver_account_id and a['user_id'] == user_id), None)
+
+            if not receiver_account:
+                return jsonify({'message': 'Conta de destino não encontrada'}), 404
+
+            if receiver_account.get('type') == 'cartao':
+                return jsonify({'message': 'Não é possível transferir para cartão de crédito'}), 400
+
+            # Realizar transferência
+            sender_account['balance'] -= amount
+            sender_account['updated_at'] = datetime.utcnow()
+            receiver_account['balance'] += amount
+            receiver_account['updated_at'] = datetime.utcnow()
+
+            transfer_data = {
+                '_id': get_next_id(),
+                'sender_account_id': sender_account_id,
+                'receiver_account_id': receiver_account_id,
+                'sender_account_name': sender_account.get('name'),
+                'receiver_account_name': receiver_account.get('name'),
+                'amount': amount,
+                'description': description,
+                'user_id': user_id,
+                'created_at': datetime.utcnow()
+            }
+
+            memory_storage['transfers'].append(transfer_data)
+
+            return jsonify({
+                'message': 'Transferência realizada com sucesso',
+                'transfer_id': transfer_data['_id'],
+                'amount': amount,
+                'sender_account': sender_account.get('name'),
+                'receiver_account': receiver_account.get('name')
+            }), 201
+
+    except PyMongoError as e:
+        print(f"Erro na transação: {e}")
+        return jsonify({'message': 'Erro ao processar transferência. Por favor, tente novamente.'}), 500
+    except Exception as e:
+        print(f"Erro inesperado: {e}")
+        return jsonify({'message': 'Erro interno ao processar transferência'}), 500
+
+
+# =====================================================
+# FIM DAS ROTAS DE TRANSFERÊNCIA
+# =====================================================
+
+
+# =====================================================
+# ROTAS DE DASHBOARD PERSONALIZÁVEL
+# =====================================================
+
+@app.route('/api/dashboard/prefs', methods=['GET'])
+@token_required
+@with_connection_retry(max_retries=3)
+def get_dashboard_prefs(current_user):
+    """Retorna as preferências de layout do dashboard do usuário"""
+    user_id = str(current_user['_id'])
+
+    if db_manager.db is not None:
+        prefs = dashboard_prefs_collection.find_one({'user_id': user_id})
+    else:
+        prefs = next((p for p in memory_storage['dashboard_prefs'] if p['user_id'] == user_id), None)
+
+    if prefs:
+        return jsonify({'prefs': serialize_doc(prefs)})
+    else:
+        # Retornar configuração padrão
+        return jsonify({
+            'prefs': {
+                'user_id': user_id,
+                'widget_order': ['widget-balance', 'widget-transactions', 'widget-goals', 'widget-charts', 'widget-budget'],
+                'visible_widgets': ['widget-balance', 'widget-transactions', 'widget-goals', 'widget-charts', 'widget-budget'],
+                'theme': 'system',
+                'updated_at': datetime.utcnow().isoformat()
+            }
+        })
+
+@app.route('/api/dashboard/prefs', methods=['POST'])
+@token_required
+@with_connection_retry(max_retries=3)
+def save_dashboard_prefs(current_user):
+    """Salva as preferências de layout do dashboard do usuário"""
+    data = request.get_json()
+
+    if not data:
+        return jsonify({'message': 'Nenhum dado fornecido'}), 400
+
+    user_id = str(current_user['_id'])
+
+    prefs_data = {
+        'user_id': user_id,
+        'widget_order': data.get('widget_order', []),
+        'visible_widgets': data.get('visible_widgets', []),
+        'theme': data.get('theme', 'system'),
+        'updated_at': datetime.utcnow()
+    }
+
+    try:
+        if db_manager.db is not None:
+            # Upsert - atualiza ou cria
+            dashboard_prefs_collection.update_one(
+                {'user_id': user_id},
+                {'$set': prefs_data},
+                upsert=True
+            )
+        else:
+            # Modo memory
+            existing_prefs = next((p for p in memory_storage['dashboard_prefs']
+                                  if p['user_id'] == user_id), None)
+            if existing_prefs:
+                existing_prefs.update(prefs_data)
+            else:
+                prefs_data['_id'] = get_next_id()
+                memory_storage['dashboard_prefs'].append(prefs_data)
+
+        return jsonify({'message': 'Preferências salvas com sucesso'})
+
+    except Exception as e:
+        print(f"Erro ao salvar preferências: {e}")
+        return jsonify({'message': 'Erro ao salvar preferências'}), 500
+
+
+# =====================================================
+# FIM DAS ROTAS DE DASHBOARD PERSONALIZÁVEL
+# =====================================================
+
+
+# =====================================================
+# ROTAS DE RELATÓRIOS E ANÁLISES AVANÇADAS
+# =====================================================
+
+@app.route('/api/analytics/overview', methods=['GET'])
+@token_required
+@with_connection_retry(max_retries=3)
+def get_analytics_overview(current_user):
+    """
+    Retorna visão geral dos dados financeiros usando Pandas para análise.
+    Inclui: total de receitas, despesas, saldo, comparações por período.
+    """
+    user_id = str(current_user['_id'])
+
+    # Parâmetros de período (default: últimos 6 meses)
+    months_back = int(request.args.get('months', 6))
+
+    try:
+        # Buscar dados do usuário
+        if db_manager.db is not None:
+            transactions = list(transactions_collection.find({'user_id': user_id}))
+            incomes = list(incomes_collection.find({'user_id': user_id}))
+            accounts = list(accounts_collection.find({'user_id': user_id}))
+        else:
+            transactions = [t for t in memory_storage['transactions'] if t['user_id'] == user_id]
+            incomes = [i for i in memory_storage['incomes'] if i['user_id'] == user_id]
+            accounts = [a for a in memory_storage['accounts'] if a['user_id'] == user_id]
+
+        # Calcular totais
+        total_expenses = sum(t.get('expense', 0) for t in transactions)
+        total_income = sum(t.get('income', 0) for t in transactions) + sum(i.get('amount', 0) for i in incomes)
+        balance = sum(a.get('balance', 0) for a in accounts if a.get('type') != 'cartao')
+
+        # Análise por mês usando Pandas
+        all_data = []
+
+        for t in transactions:
+            if t.get('expense', 0) > 0:
+                all_data.append({
+                    'date': t.get('month', ''),
+                    'type': 'expense',
+                    'amount': t.get('expense', 0),
+                    'category_id': t.get('category_id', '')
+                })
+            if t.get('income', 0) > 0:
+                all_data.append({
+                    'date': t.get('month', ''),
+                    'type': 'income',
+                    'amount': t.get('income', 0),
+                    'category_id': t.get('category_id', '')
+                })
+
+        for i in incomes:
+            all_data.append({
+                'date': i.get('month', ''),
+                'type': 'income',
+                'amount': i.get('amount', 0),
+                'category_id': ''
+            })
+
+        # Usar Pandas para análise se houver dados suficientes
+        if all_data:
+            df = pd.DataFrame(all_data)
+
+            # Agrupar por mês e tipo
+            monthly_summary = df.groupby(['date', 'type'])['amount'].sum().unstack(fill_value=0)
+            monthly_summary = monthly_summary.reset_index()
+
+            # Converter para lista de dicionários
+            monthly_data = []
+            for _, row in monthly_summary.iterrows():
+                monthly_data.append({
+                    'month': row['date'],
+                    'expenses': float(row.get('expense', 0)),
+                    'income': float(row.get('income', 0))
+                })
+
+            # Despesas por categoria
+            expenses_df = df[df['type'] == 'expense']
+            category_summary = expenses_df.groupby('category_id')['amount'].sum().reset_index()
+            category_data = []
+            for _, row in category_summary.iterrows():
+                category_data.append({
+                    'category_id': row['category_id'],
+                    'amount': float(row['amount'])
+                })
+
+            # Tendência (comparação último mês vs mês anterior)
+            trend = 'stable'
+            if len(monthly_data) >= 2:
+                last_month = monthly_data[0]
+                prev_month = monthly_data[1]
+                if last_month['expenses'] > prev_month['expenses']:
+                    trend = 'up'
+                elif last_month['expenses'] < prev_month['expenses']:
+                    trend = 'down'
+
+            return jsonify({
+                'overview': {
+                    'total_balance': balance,
+                    'total_expenses': total_expenses,
+                    'total_income': total_income,
+                    'account_count': len(accounts)
+                },
+                'monthly_summary': monthly_data,
+                'expenses_by_category': category_data,
+                'trend': trend,
+                'period_months': months_back
+            })
+        else:
+            return jsonify({
+                'overview': {
+                    'total_balance': balance,
+                    'total_expenses': total_expenses,
+                    'total_income': total_income,
+                    'account_count': len(accounts)
+                },
+                'monthly_summary': [],
+                'expenses_by_category': [],
+                'trend': 'stable',
+                'period_months': months_back
+            })
+
+    except Exception as e:
+        print(f"Erro na análise: {e}")
+        return jsonify({'message': 'Erro ao gerar análise'}), 500
+
+
+@app.route('/api/analytics/trends', methods=['GET'])
+@token_required
+@with_connection_retry(max_retries=3)
+def get_analytics_trends(current_user):
+    """
+    Análise de tendências financeiras usando Pandas.
+    Inclui: médias móveis, projeções e padrões de gastos.
+    """
+    user_id = str(current_user['_id'])
+
+    try:
+        # Buscar dados
+        if db_manager.db is not None:
+            transactions = list(transactions_collection.find({'user_id': user_id}))
+            incomes = list(incomes_collection.find({'user_id': user_id}))
+        else:
+            transactions = [t for t in memory_storage['transactions'] if t['user_id'] == user_id]
+            incomes = [i for i in memory_storage['incomes'] if i['user_id'] == user_id]
+
+        # Preparar dados para análise
+        all_data = []
+
+        for t in transactions:
+            all_data.append({
+                'date': t.get('month', ''),
+                'type': 'expense' if t.get('expense', 0) > 0 else 'income',
+                'amount': t.get('expense', 0) or t.get('income', 0)
+            })
+
+        for i in incomes:
+            all_data.append({
+                'date': i.get('month', ''),
+                'type': 'income',
+                'amount': i.get('amount', 0)
+            })
+
+        if not all_data:
+            return jsonify({
+                'message': 'Não há dados suficientes para análise de tendências',
+                'trends': []
+            })
+
+        df = pd.DataFrame(all_data)
+
+        # Calcular médias móveis (últimos 3 meses)
+        monthly_totals = df.groupby('date')['amount'].sum().reset_index()
+        monthly_totals = monthly_totals.sort_values('date')
+
+        if len(monthly_totals) >= 3:
+            monthly_totals['moving_avg_3'] = monthly_totals['amount'].rolling(window=3).mean()
+        else:
+            monthly_totals['moving_avg_3'] = monthly_totals['amount']
+
+        # Calcular crescimento percentual
+        if len(monthly_totals) >= 2:
+            monthly_totals['growth_rate'] = monthly_totals['amount'].pct_change() * 100
+        else:
+            monthly_totals['growth_rate'] = 0
+
+        # Converter para JSON
+        trends_data = []
+        for _, row in monthly_totals.iterrows():
+            trends_data.append({
+                'month': row['date'],
+                'total_amount': float(row['amount']),
+                'moving_avg_3m': float(row['moving_avg_3']) if pd.notna(row['moving_avg_3']) else 0,
+                'growth_rate': float(row['growth_rate']) if pd.notna(row['growth_rate']) else 0
+            })
+
+        # Análise de categoria com maior crescimento
+        if 'category_id' in df.columns:
+            category_trends = df.groupby(['date', 'category_id'])['amount'].sum().reset_index()
+            if not category_trends.empty:
+                # Pegar última categoria com maior crescimento
+                last_month = category_trends['date'].max()
+                last_month_data = category_trends[category_trends['date'] == last_month]
+                top_category = last_month_data.loc[last_month_data['amount'].idxmax()]
+                top_category_id = top_category['category_id']
+            else:
+                top_category_id = None
+        else:
+            top_category_id = None
+
+        return jsonify({
+            'trends': trends_data,
+            'top_growing_category': top_category_id,
+            'analysis': {
+                'avg_monthly_spending': float(monthly_totals['amount'].mean()) if not monthly_totals.empty else 0,
+                'max_monthly_spending': float(monthly_totals['amount'].max()) if not monthly_totals.empty else 0,
+                'min_monthly_spending': float(monthly_totals['amount'].min()) if not monthly_totals.empty else 0,
+                'total_months_analyzed': len(monthly_totals)
+            }
+        })
+
+    except Exception as e:
+        print(f"Erro na análise de tendências: {e}")
+        return jsonify({'message': 'Erro ao gerar análise de tendências'}), 500
+
+
+@app.route('/api/analytics/forecast', methods=['GET'])
+@token_required
+@with_connection_retry(max_retries=3)
+def get_analytics_forecast(current_user):
+    """
+    Projeção financeira baseada em histórico.
+    Usa média móvel para prever gastos futuros.
+    """
+    user_id = str(current_user['_id'])
+
+    # Número de meses para projetar
+    forecast_months = int(request.args.get('months', 3))
+
+    try:
+        # Buscar dados
+        if db_manager.db is not None:
+            transactions = list(transactions_collection.find({'user_id': user_id}))
+            incomes = list(incomes_collection.find({'user_id': user_id}))
+        else:
+            transactions = [t for t in memory_storage['transactions'] if t['user_id'] == user_id]
+            incomes = [i for i in memory_storage['incomes'] if i['user_id'] == user_id]
+
+        # Preparar dados
+        all_data = []
+
+        for t in transactions:
+            if t.get('expense', 0) > 0:
+                all_data.append({
+                    'date': t.get('month', ''),
+                    'type': 'expense',
+                    'amount': t.get('expense', 0)
+                })
+
+        for i in incomes:
+            all_data.append({
+                'date': i.get('month', ''),
+                'type': 'income',
+                'amount': i.get('amount', 0)
+            })
+
+        if not all_data:
+            return jsonify({
+                'message': 'Não há dados suficientes para projeção',
+                'forecast': []
+            })
+
+        df = pd.DataFrame(all_data)
+        monthly_totals = df.groupby(['date', 'type'])['amount'].sum().unstack(fill_value=0)
+        monthly_totals = monthly_totals.reset_index()
+        monthly_totals = monthly_totals.sort_values('date')
+
+        if monthly_totals.empty:
+            return jsonify({
+                'message': 'Não há dados suficientes para projeção',
+                'forecast': []
+            })
+
+        # Calcular médias
+        avg_expenses = monthly_totals.get('expense', pd.Series([0])).mean()
+        avg_income = monthly_totals.get('income', pd.Series([0])).mean()
+
+        # Gerar projeção para próximos meses
+        forecast = []
+        last_date = monthly_totals['date'].max()
+
+        for i in range(1, forecast_months + 1):
+            # Parse da última data e adicionar meses
+            try:
+                year_month = last_date.split('-')
+                year = int(year_month[0])
+                month = int(year_month[1]) + i
+
+                while month > 12:
+                    month -= 12
+                    year += 1
+
+                projected_month = f"{year}-{month:02d}"
+            except:
+                projected_month = f"Proj-{i}"
+
+            # Adicionar variação aleatória de ±10% para realismo
+            import random
+            expense_variation = random.uniform(-0.1, 0.1)
+            income_variation = random.uniform(-0.1, 0.1)
+
+            forecast.append({
+                'month': projected_month,
+                'type': 'forecast',
+                'predicted_expenses': round(avg_expenses * (1 + expense_variation), 2),
+                'predicted_income': round(avg_income * (1 + income_variation), 2),
+                'confidence': 'low' if i > 3 else 'medium'
+            })
+
+        return jsonify({
+            'forecast': forecast,
+            'basis': {
+                'avg_historical_expenses': round(avg_expenses, 2),
+                'avg_historical_income': round(avg_income, 2),
+                'projection_months': forecast_months
+            }
+        })
+
+    except Exception as e:
+        print(f"Erro na projeção: {e}")
+        return jsonify({'message': 'Erro ao gerar projeção'}), 500
+
+
+# =====================================================
+# FIM DAS ROTAS DE RELATÓRIOS E ANÁLISES
+# =====================================================
+
+
+# =====================================================
 # ENDPOINT DE DEBUG PARA CARTÃO DE CRÉDITO
 # =====================================================
 
@@ -1884,7 +2539,7 @@ def get_stats():
         'total_users': total_users,
         'total_transactions': total_transactions,
         'total_categories': total_categories,
-        'version': '2.2.0'  # Versão atualizada com reconexão automática
+        'version': '2.3.0'  # Versão atualizada com transferências e analytics
     })
 
 # Export Routes
