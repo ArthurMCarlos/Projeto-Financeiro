@@ -380,6 +380,10 @@ function initializeEventListeners() {
     document.getElementById('addAccountBtn').addEventListener('click', () => openAccountModal());
     document.getElementById('accountForm').addEventListener('submit', saveAccount);
 
+    // Transfer events
+    document.getElementById('transferForm').addEventListener('submit', saveTransfer);
+    document.getElementById('transferFromAccount').addEventListener('change', onTransferFromAccountChanged);
+
     // Goal events
     document.getElementById('addGoalBtn').addEventListener('click', () => openGoalModal());
     document.getElementById('goalForm').addEventListener('submit', saveGoal);
@@ -624,6 +628,7 @@ async function loadAccounts() {
         updateAccountSelects();
         updateIncomeAccountSelects(); // Popular selects específicos de receitas
         updateOverviewAccountSelect(); // Popular select da overview
+        updateTransferAccountSelects(); // Popular selects do modal de transferência
         displayAccounts();
         updateAccountBalances(); // Atualiza o cálculo de saldos automático
         updateAccountSummary(); // Atualizar resumo se houver conta selecionada
@@ -1991,6 +1996,200 @@ async function deleteGoal(goalId) {
         await loadGoals();
     } catch (error) {
         console.error('Erro ao excluir meta:', error);
+    }
+}
+
+// =====================================================
+// TRANSFER FUNCTIONS
+// =====================================================
+
+// Atualiza os selects de conta no modal de transferência
+function updateTransferAccountSelects() {
+    const fromSelect = document.getElementById('transferFromAccount');
+    const toSelect = document.getElementById('transferToAccount');
+
+    if (!fromSelect || !toSelect) return;
+
+    // Manter valores atuais
+    const fromCurrentValue = fromSelect.value;
+    const toCurrentValue = toSelect.value;
+
+    // Filtrar apenas contas válidas para transferência (não cartão de crédito)
+    const validAccounts = accounts.filter(a => a.type !== 'cartao');
+
+    // Limpar opções (exceto a primeira)
+    const fromOptionsHTML = '<option value="">Selecione a conta de origem</option>';
+    const toOptionsHTML = '<option value="">Selecione a conta de destino</option>';
+
+    fromSelect.innerHTML = fromOptionsHTML;
+    toSelect.innerHTML = toOptionsHTML;
+
+    // Adicionar contas disponíveis
+    validAccounts.forEach(account => {
+        const fromOption = document.createElement('option');
+        fromOption.value = account._id;
+        fromOption.textContent = `${account.name} (R$ ${formatCurrency(account.balance || 0)})`;
+        fromSelect.appendChild(fromOption);
+
+        const toOption = document.createElement('option');
+        toOption.value = account._id;
+        toOption.textContent = account.name;
+        toSelect.appendChild(toOption);
+    });
+
+    // Restaurar valores selecionados
+    if (fromCurrentValue) fromSelect.value = fromCurrentValue;
+    if (toCurrentValue) toSelect.value = toCurrentValue;
+}
+
+function openTransferModal() {
+    const modal = document.getElementById('transferModal');
+    const form = document.getElementById('transferForm');
+
+    form.reset();
+
+    // Atualizar selects de conta
+    updateTransferAccountSelects();
+
+    // Ocultar info de saldo
+    document.getElementById('transferFromBalanceInfo').style.display = 'none';
+
+    document.getElementById('transferModalTitle').textContent = 'Nova Transferência';
+    modal.style.display = 'block';
+}
+
+function closeTransferModal() {
+    document.getElementById('transferModal').style.display = 'none';
+}
+
+// Atualiza a info de saldo quando a conta de origem é alterada
+function onTransferFromAccountChanged() {
+    const fromAccountId = document.getElementById('transferFromAccount').value;
+    const balanceInfo = document.getElementById('transferFromBalanceInfo');
+    const balanceValue = document.getElementById('transferFromBalanceValue');
+
+    if (!fromAccountId) {
+        balanceInfo.style.display = 'none';
+        return;
+    }
+
+    const account = accounts.find(a => a._id === fromAccountId);
+    if (account) {
+        balanceValue.textContent = `R$ ${formatCurrency(account.balance || 0)}`;
+        balanceInfo.style.display = 'block';
+
+        // Adicionar classe de cor baseada no saldo
+        balanceInfo.classList.remove('positive', 'negative', 'zero');
+        if ((account.balance || 0) > 0) {
+            balanceInfo.classList.add('positive');
+        } else {
+            balanceInfo.classList.add('negative');
+        }
+    } else {
+        balanceInfo.style.display = 'none';
+    }
+}
+
+async function saveTransfer(event) {
+    event.preventDefault();
+
+    const fromAccountId = document.getElementById('transferFromAccount').value;
+    const toAccountId = document.getElementById('transferToAccount').value;
+    const amount = parseFloat(document.getElementById('transferAmount').value);
+    const description = document.getElementById('transferDescription').value;
+
+    // Validações básicas
+    if (!fromAccountId || !toAccountId || !amount || !description) {
+        showToast('Por favor, preencha todos os campos', 'error');
+        return;
+    }
+
+    if (fromAccountId === toAccountId) {
+        showToast('A conta de origem e destino não podem ser a mesma', 'error');
+        return;
+    }
+
+    if (amount <= 0) {
+        showToast('O valor da transferência deve ser maior que zero', 'error');
+        return;
+    }
+
+    // Verificar saldo da conta de origem
+    const fromAccount = accounts.find(a => a._id === fromAccountId);
+    if (!fromAccount) {
+        showToast('Conta de origem não encontrada', 'error');
+        return;
+    }
+
+    const availableBalance = fromAccount.balance || 0;
+    if (availableBalance < amount) {
+        showToast(`Saldo insuficiente! Saldo disponível: R$ ${formatCurrency(availableBalance)}`, 'error');
+        return;
+    }
+
+    // Confirmação do usuário
+    const toAccount = accounts.find(a => a._id === toAccountId);
+    const confirmMessage = `
+        🔄 Confirmar Transferência?
+
+        De: ${fromAccount.name}
+        Para: ${toAccount.name}
+        Valor: R$ ${formatCurrency(amount)}
+        Descrição: ${description}
+
+        Saldo após transferência: R$ ${formatCurrency(availableBalance - amount)}
+    `;
+
+    if (!confirm(confirmMessage)) {
+        showToast('Transferência cancelada pelo usuário', 'info');
+        return;
+    }
+
+    // Mostrar loading
+    const submitBtn = event.target.querySelector('button[type="submit"]');
+    const originalText = submitBtn.textContent;
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Processando...';
+
+    try {
+        const transferData = {
+            from_account_id: fromAccountId,
+            to_account_id: toAccountId,
+            amount: amount,
+            description: description
+        };
+
+        const response = await apiCall('/api/transactions/transfer', {
+            method: 'POST',
+            body: JSON.stringify(transferData)
+        });
+
+        if (response) {
+            showToast(`✅ Transferência realizada com sucesso!`, 'success');
+
+            // Mostrar detalhes da transferência
+            const detailsMessage = `
+                De: ${response.from_account.name}
+                Para: ${response.to_account.name}
+                Valor: R$ ${formatCurrency(response.amount)}
+
+                Saldo anterior (${response.from_account.name}): R$ ${formatCurrency(response.from_account.previous_balance)}
+                Novo saldo (${response.from_account.name}): R$ ${formatCurrency(response.from_account.new_balance)}
+            `;
+            console.log('Transferência:', detailsMessage);
+
+            closeTransferModal();
+
+            // Recarregar dados e atualizar interface
+            await refreshAllData();
+        }
+    } catch (error) {
+        console.error('Erro na transferência:', error);
+        showToast(error.message || 'Erro ao realizar transferência', 'error');
+    } finally {
+        // Restaurar botão
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalText;
     }
 }
 
