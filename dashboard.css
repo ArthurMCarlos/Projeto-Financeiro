@@ -1757,3 +1757,71 @@ tr:last-child td {
 .items-center { align-items: center; }
 .gap-1 { gap: 0.5rem; }
 .gap-2 { gap: 1rem; }
+
+/* =====================================================
+   TRANSFER MODAL STYLES
+   ===================================================== */
+
+.transfer-balance-info {
+    background: var(--bg-secondary);
+    border: 2px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    transition: border-color 0.3s ease, background 0.3s ease;
+}
+
+.transfer-balance-info.positive {
+    border-color: var(--success);
+    background: rgba(16, 185, 129, 0.05);
+}
+
+.transfer-balance-info.negative {
+    border-color: var(--danger);
+    background: rgba(239, 68, 68, 0.05);
+}
+
+.balance-display {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.balance-display .label {
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.balance-display .value {
+    font-size: 1.125rem;
+    font-weight: 700;
+}
+
+.transfer-balance-info.positive .balance-display .value {
+    color: var(--success);
+}
+
+.transfer-balance-info.negative .balance-display .value {
+    color: var(--danger);
+}
+
+/* Modal larger for transfer */
+#transferModal .modal-content {
+    max-width: 550px;
+}
+
+/* Responsive adjustments for transfer modal */
+@media (max-width: 768px) {
+    #transferModal .modal-content {
+        margin: 5% auto;
+        width: 95%;
+        padding: 1.25rem;
+    }
+
+    .balance-display {
+        flex-direction: column;
+        gap: 0.5rem;
+        text-align: center;
+    }
+}
