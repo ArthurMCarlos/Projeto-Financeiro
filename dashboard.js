@@ -6,6 +6,7 @@ let incomes = [];
 let budgets = [];
 let accounts = [];
 let goals = [];
+let transfers = [];
 let charts = {};
 
 // API Base URL
@@ -151,6 +152,9 @@ async function initializeApp() {
     // Initialize event listeners
     initializeEventListeners();
 
+    // Initialize dashboard drag & drop
+    initializeDashboardDragDrop();
+
     // Initialize charts
     initializeCharts();
 }
@@ -172,6 +176,156 @@ function initializeTheme() {
         updateChartsTheme();
     });
 }
+
+// =====================================================
+// DASHBOARD DRAG & DROP PERSONALIZÁVEL
+// =====================================================
+
+function initializeDashboardDragDrop() {
+    const dashboardGrid = document.getElementById('dashboardGrid');
+    if (!dashboardGrid) return;
+
+    // Carregar preferências do usuário
+    loadDashboardPreferences();
+
+    // Adicionar event listeners para drag & drop
+    const widgets = dashboardGrid.querySelectorAll('.widget');
+    
+    widgets.forEach(widget => {
+        widget.setAttribute('draggable', 'true');
+        
+        widget.addEventListener('dragstart', handleDragStart);
+        widget.addEventListener('dragend', handleDragEnd);
+        widget.addEventListener('dragover', handleDragOver);
+        widget.addEventListener('dragenter', handleDragEnter);
+        widget.addEventListener('dragleave', handleDragLeave);
+        widget.addEventListener('drop', handleDrop);
+    });
+
+    // Adicionar zona de drop no container
+    dashboardGrid.addEventListener('dragover', handleDragOver);
+    dashboardGrid.addEventListener('drop', handleDrop);
+}
+
+function handleDragStart(e) {
+    this.classList.add('dragging');
+    e.dataTransfer.setData('text/plain', this.id);
+    e.dataTransfer.effectAllowed = 'move';
+}
+
+function handleDragEnd(e) {
+    this.classList.remove('dragging');
+    document.querySelectorAll('.widget').forEach(widget => {
+        widget.classList.remove('drag-over');
+    });
+}
+
+function handleDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+}
+
+function handleDragEnter(e) {
+    e.preventDefault();
+    if (this.classList.contains('widget')) {
+        this.classList.add('drag-over');
+    }
+}
+
+function handleDragLeave(e) {
+    if (this.classList.contains('widget')) {
+        this.classList.remove('drag-over');
+    }
+}
+
+function handleDrop(e) {
+    e.preventDefault();
+    
+    const draggingWidget = document.querySelector('.dragging');
+    if (!draggingWidget) return;
+
+    const dashboardGrid = document.getElementById('dashboardGrid');
+    const widgets = [...dashboardGrid.querySelectorAll('.widget:not(.dragging)')];
+    
+    // Encontrar o elemento mais próximo (widget ou container)
+    const dropTarget = e.target.closest('.widget') || dashboardGrid;
+    
+    if (dropTarget === dashboardGrid) {
+        // Drop no container, adicionar no final
+        dashboardGrid.appendChild(draggingWidget);
+    } else if (dropTarget !== draggingWidget) {
+        // Drop sobre outro widget, inserir antes ou depois
+        const rect = dropTarget.getBoundingClientRect();
+        const midX = rect.left + rect.width / 2;
+        
+        if (e.clientX < midX) {
+            dashboardGrid.insertBefore(draggingWidget, dropTarget);
+        } else {
+            dashboardGrid.insertBefore(draggingWidget, dropTarget.nextSibling);
+        }
+    }
+
+    // Remover classes de destaque
+    document.querySelectorAll('.widget').forEach(widget => {
+        widget.classList.remove('drag-over');
+    });
+
+    // Salvar nova ordem
+    saveDashboardOrder();
+}
+
+async function loadDashboardPreferences() {
+    try {
+        const data = await apiCall('/api/dashboard/prefs');
+        if (data && data.prefs && data.prefs.widget_order) {
+            const dashboardGrid = document.getElementById('dashboardGrid');
+            if (!dashboardGrid) return;
+
+            const widgetOrder = data.prefs.widget_order;
+            const widgets = [...dashboardGrid.querySelectorAll('.widget')];
+
+            // Reordenar widgets conforme preferência
+            widgetOrder.forEach(widgetId => {
+                const widget = widgets.find(w => w.id === widgetId);
+                if (widget) {
+                    dashboardGrid.appendChild(widget);
+                    widgets.splice(widgets.indexOf(widget), 1);
+                }
+            });
+
+            // Widgets não ordenados vão para o final
+            widgets.forEach(widget => {
+                dashboardGrid.appendChild(widget);
+            });
+        }
+    } catch (error) {
+        console.log('Erro ao carregar preferências do dashboard:', error);
+    }
+}
+
+async function saveDashboardOrder() {
+    const dashboardGrid = document.getElementById('dashboardGrid');
+    if (!dashboardGrid) return;
+
+    const widgetOrder = [...dashboardGrid.querySelectorAll('.widget')]
+        .map(widget => widget.id);
+
+    try {
+        await apiCall('/api/dashboard/prefs', {
+            method: 'POST',
+            body: JSON.stringify({
+                widget_order: widgetOrder
+            })
+        });
+        console.log('✅ Ordem do dashboard salva');
+    } catch (error) {
+        console.error('Erro ao salvar ordem do dashboard:', error);
+    }
+}
+
+// =====================================================
+// FIM DASHBOARD DRAG & DROP
+// =====================================================
 
 // =====================================================
 // FUNÇÕES DE CARTÃO DE CRÉDITO
@@ -275,6 +429,7 @@ async function resetCreditCard(accountId) {
 // Exibe alertas de cartões próximos do fechamento
 function displayCreditCardAlerts() {
     const alertsContainer = document.getElementById('creditCardAlerts');
+    const widgetContainer = document.getElementById('creditCardAlertsWidget');
     if (!alertsContainer) return;
 
     const today = new Date().getDate();
@@ -316,7 +471,8 @@ function displayCreditCardAlerts() {
     });
 
     if (alerts.length > 0) {
-        alertsContainer.style.display = 'block';
+        if (widgetContainer) widgetContainer.style.display = 'block';
+        alertsContainer.style.display = 'flex';
         alertsContainer.innerHTML = alerts.map(alert => `
             <div class="credit-card-alert ${alert.type}">
                 <span class="alert-icon">${alert.icon}</span>
@@ -324,6 +480,7 @@ function displayCreditCardAlerts() {
             </div>
         `).join('');
     } else {
+        if (widgetContainer) widgetContainer.style.display = 'none';
         alertsContainer.style.display = 'none';
     }
 }
@@ -380,6 +537,12 @@ function initializeEventListeners() {
     document.getElementById('addAccountBtn').addEventListener('click', () => openAccountModal());
     document.getElementById('accountForm').addEventListener('submit', saveAccount);
 
+    // Transfer events
+    document.getElementById('addTransferBtn')?.addEventListener('click', () => openTransferModal());
+    document.getElementById('transferForm')?.addEventListener('submit', saveTransfer);
+    document.getElementById('transferFromAccount')?.addEventListener('change', updateTransferSourceBalance);
+    document.getElementById('transferToAccount')?.addEventListener('change', updateTransferDestBalance);
+
     // Goal events
     document.getElementById('addGoalBtn').addEventListener('click', () => openGoalModal());
     document.getElementById('goalForm').addEventListener('submit', saveGoal);
@@ -390,6 +553,10 @@ function initializeEventListeners() {
 
     // Comparison
     document.getElementById('compareBtn').addEventListener('click', compareMonths);
+
+    // Analytics events
+    document.getElementById('analyticsPeriod')?.addEventListener('change', loadAnalytics);
+    document.getElementById('forecastMonths')?.addEventListener('change', loadForecast);
 
     // Modal close
     document.querySelectorAll('.close').forEach(closeBtn => {
@@ -427,15 +594,28 @@ function navigateToPage(page) {
         'expenses': 'Despesas',
         'budgets': 'Orçamentos',
         'accounts': 'Contas',
+        'transfers': 'Transferências',
         'goals': 'Metas',
         'categories': 'Categorias',
-        'reports': 'Relatórios'
+        'reports': 'Relatórios',
+        'analytics': 'Análises'
     };
-    document.getElementById('pageTitle').textContent = titles[page];
+    document.getElementById('pageTitle').textContent = titles[page] || page;
 
     // Load page-specific data
     if (page === 'categories') {
         displayCategories();
+    }
+
+    // Load analytics when visiting analytics page
+    if (page === 'analytics') {
+        loadAnalytics();
+        loadForecast();
+    }
+
+    // Load transfers when visiting transfers page
+    if (page === 'transfers') {
+        displayTransfers();
     }
 
     // Close sidebar on mobile
@@ -486,7 +666,8 @@ async function loadAllData() {
             loadIncomes(),
             loadBudgets(),
             loadAccounts(),
-            loadGoals()
+            loadGoals(),
+            loadTransfers()
         ]);
 
         // FORÇAR ATUALIZAÇÃO DE TODAS AS LISTAS APÓS CARREGAR TODOS OS DADOS
@@ -505,7 +686,8 @@ async function updateAllDisplays() {
         transactions: transactions.length,
         categories: categories.length,
         accounts: accounts.length,
-        budgets: budgets.length
+        budgets: budgets.length,
+        transfers: transfers.length
     });
 
     // Atualizar todas as displays na ordem correta
@@ -514,12 +696,14 @@ async function updateAllDisplays() {
     displayBudgets();
     displayAccounts();
     displayGoals();
+    displayTransfers();
 
     // Atualizar todos os seletores e resumos
     updateCategorySelects();
     updateAccountSelects();
     updateIncomeAccountSelects();
     updateOverviewAccountSelect();
+    updateTransferAccountSelects();
     updateAccountBalances();
     updateAccountSummary();
     updateOverviewAccountSummary();
@@ -531,6 +715,474 @@ async function updateAllDisplays() {
     console.log('✅ Displays atualizados com sucesso');
 }
 
+async function loadTransfers() {
+    try {
+        const data = await apiCall('/api/transfers');
+        transfers = data.transfers || [];
+        displayTransfers();
+        updateTransferStats();
+    } catch (error) {
+        console.error('Erro ao carregar transferências:', error);
+    }
+}
+
+function updateTransferStats() {
+    // Como todas as transferências são do mesmo usuário entre suas contas,
+    // vamos mostrar o total transferido (independente da direção)
+    const totalTransferred = transfers
+        .filter(t => t.status === 'completed')
+        .reduce((sum, t) => sum + t.amount, 0);
+
+    const totalSentElement = document.getElementById('totalSent');
+    const totalReceivedElement = document.getElementById('totalReceived');
+    const netTransferElement = document.getElementById('netTransfer');
+
+    if (totalSentElement) {
+        totalSentElement.textContent = `R$ ${formatCurrency(totalTransferred)}`;
+        totalSentElement.classList.add('sent');
+    }
+    if (totalReceivedElement) {
+        totalReceivedElement.textContent = `R$ ${formatCurrency(totalTransferred)}`;
+        totalReceivedElement.classList.add('received');
+    }
+    if (netTransferElement) {
+        netTransferElement.textContent = `R$ ${formatCurrency(totalTransferred)}`;
+    }
+}
+
+function displayTransfers() {
+    const tableBody = document.querySelector('#transfersTable tbody');
+    if (!tableBody) return;
+
+    if (transfers.length === 0) {
+        tableBody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">Nenhuma transferência encontrada</td></tr>';
+        return;
+    }
+
+    tableBody.innerHTML = transfers.map(transfer => {
+        const date = new Date(transfer.created_at).toLocaleDateString('pt-BR', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric'
+        });
+
+        const statusClass = transfer.status === 'completed' ? 'success' : 'pending';
+        const statusText = transfer.status === 'completed' ? 'Concluída' : 'Pendente';
+
+        return `
+            <tr>
+                <td>${date}</td>
+                <td>${transfer.sender_account_name || 'Conta de Origem'}</td>
+                <td>${transfer.receiver_account_name || 'Conta de Destino'}</td>
+                <td class="transaction-amount income">R$ ${formatCurrency(transfer.amount)}</td>
+                <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+                <td>
+                    <button class="btn-icon" onclick="viewTransferDetails('${transfer._id}')" title="Ver detalhes">👁️</button>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function updateTransferAccountSelects() {
+    const sourceSelect = document.getElementById('transferFromAccount');
+    const destSelect = document.getElementById('transferToAccount');
+
+    [sourceSelect, destSelect].forEach(select => {
+        if (!select) return;
+
+        const currentValue = select.value;
+        select.innerHTML = '<option value="">Selecione uma conta</option>';
+
+        accounts.forEach(account => {
+            // Não permitir cartões de crédito como origem ou destino
+            if (account.type === 'cartao') return;
+
+            const option = document.createElement('option');
+            option.value = account._id;
+            option.textContent = `${account.name} - R$ ${formatCurrency(account.balance || 0)}`;
+            select.appendChild(option);
+        });
+
+        if (currentValue) select.value = currentValue;
+    });
+}
+
+function openTransferModal() {
+    const modal = document.getElementById('transferModal');
+    if (!modal) return;
+
+    const form = document.getElementById('transferForm');
+    if (form) form.reset();
+
+    updateTransferAccountSelects();
+    updateTransferSourceBalance();
+    updateTransferDestBalance();
+
+    modal.style.display = 'block';
+}
+
+function closeTransferModal() {
+    const modal = document.getElementById('transferModal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+}
+
+function updateTransferSourceBalance() {
+    const sourceSelect = document.getElementById('transferFromAccount');
+    const balanceDisplay = document.getElementById('transferSourceBalance');
+    
+    if (!sourceSelect || !balanceDisplay) return;
+
+    const accountId = sourceSelect.value;
+    if (accountId) {
+        const account = accounts.find(a => a._id === accountId);
+        if (account) {
+            balanceDisplay.textContent = `Saldo disponível: R$ ${formatCurrency(account.balance || 0)}`;
+            balanceDisplay.style.display = 'block';
+        }
+    } else {
+        balanceDisplay.style.display = 'none';
+    }
+}
+
+function updateTransferDestBalance() {
+    const destSelect = document.getElementById('transferToAccount');
+    const balanceDisplay = document.getElementById('transferDestBalance');
+    
+    if (!destSelect || !balanceDisplay) return;
+
+    const accountId = destSelect.value;
+    if (accountId) {
+        const account = accounts.find(a => a._id === accountId);
+        if (account) {
+            balanceDisplay.textContent = `Saldo atual: R$ ${formatCurrency(account.balance || 0)}`;
+            balanceDisplay.style.display = 'block';
+        }
+    } else {
+        balanceDisplay.style.display = 'none';
+    }
+}
+
+async function saveTransfer(event) {
+    event.preventDefault();
+
+    const sourceAccountId = document.getElementById('transferFromAccount').value;
+    const destAccountId = document.getElementById('transferToAccount').value;
+    const amount = parseFloat(document.getElementById('transferAmount').value);
+    const description = document.getElementById('transferDescription').value;
+
+    if (sourceAccountId === destAccountId) {
+        showNotification('A conta de origem e destino devem ser diferentes', 'error');
+        return;
+    }
+
+    if (amount <= 0) {
+        showNotification('O valor da transferência deve ser maior que zero', 'error');
+        return;
+    }
+
+    const sourceAccount = accounts.find(a => a._id === sourceAccountId);
+    if (sourceAccount && sourceAccount.balance < amount) {
+        showNotification('Saldo insuficiente para esta transferência', 'error');
+        return;
+    }
+
+    const transferData = {
+        sender_account_id: sourceAccountId,
+        receiver_account_id: destAccountId,
+        amount: amount,
+        description: description
+    };
+
+    try {
+        const response = await apiCall('/api/transfers', {
+            method: 'POST',
+            body: JSON.stringify(transferData)
+        });
+
+        showNotification('Transferência realizada com sucesso!', 'success');
+        closeTransferModal();
+
+        // Recarregar dados
+        await loadTransfers();
+        await loadAccounts();
+        updateAccountBalances();
+        updateOverview();
+    } catch (error) {
+        console.error('Erro ao realizar transferência:', error);
+        showNotification(error.message || 'Erro ao realizar transferência', 'error');
+    }
+}
+
+// =====================================================
+// FIM DAS FUNÇÕES DE TRANSFERÊNCIA
+// =====================================================
+
+function viewTransferDetails(transferId) {
+    const transfer = transfers.find(t => t._id === transferId);
+    if (!transfer) return;
+
+    const modal = document.getElementById('transferDetailsModal');
+    const content = document.getElementById('transferDetailsContent');
+    if (!modal || !content) return;
+
+    const date = new Date(transfer.created_at).toLocaleDateString('pt-BR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+
+    const statusLabels = {
+        'pending': 'Pendente',
+        'completed': 'Concluída',
+        'failed': 'Falhou',
+        'cancelled': 'Cancelada'
+    };
+
+    content.innerHTML = `
+        <div class="transfer-detail-row">
+            <span class="label">Data:</span>
+            <span class="value">${date}</span>
+        </div>
+        <div class="transfer-detail-row">
+            <span class="label">Conta de Origem:</span>
+            <span class="value">${transfer.sender_account_name || 'Conta de Origem'}</span>
+        </div>
+        <div class="transfer-detail-row">
+            <span class="label">Conta de Destino:</span>
+            <span class="value">${transfer.receiver_account_name || 'Conta de Destino'}</span>
+        </div>
+        <div class="transfer-detail-row">
+            <span class="label">Valor:</span>
+            <span class="value positive">R$ ${formatCurrency(transfer.amount)}</span>
+        </div>
+        <div class="transfer-detail-row">
+            <span class="label">Status:</span>
+            <span class="value">${statusLabels[transfer.status] || transfer.status}</span>
+        </div>
+        ${transfer.description ? `
+            <div class="transfer-detail-row">
+                <span class="label">Descrição:</span>
+                <span class="value">${transfer.description}</span>
+            </div>
+        ` : ''}
+    `;
+
+    modal.style.display = 'block';
+}
+
+function closeTransferDetailsModal() {
+    const modal = document.getElementById('transferDetailsModal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+}
+
+// =====================================================
+// FUNÇÕES DE ANALYTICS E RELATÓRIOS AVANÇADOS
+// =====================================================
+
+async function loadAnalytics() {
+    const periodSelect = document.getElementById('analyticsPeriod');
+    const months = periodSelect ? parseInt(periodSelect.value) : 6;
+
+    try {
+        const data = await apiCall(`/api/analytics/overview?months=${months}`);
+        
+        if (data && data.overview) {
+            updateAnalyticsOverview(data);
+            updateAnalyticsCharts(data);
+        }
+    } catch (error) {
+        console.error('Erro ao carregar analytics:', error);
+    }
+}
+
+function updateAnalyticsOverview(data) {
+    // Atualizar cards de visão geral
+    const overview = data.overview;
+    const monthlySummary = data.monthly_summary || [];
+    const expensesByCategory = data.expenses_by_category || [];
+
+    // Total Balance
+    const balanceElement = document.getElementById('analyticsTotalBalance');
+    if (balanceElement) {
+        balanceElement.textContent = `R$ ${formatCurrency(overview.total_balance || 0)}`;
+    }
+
+    // Total Income
+    const incomeElement = document.getElementById('analyticsTotalIncome');
+    if (incomeElement) {
+        incomeElement.textContent = `R$ ${formatCurrency(overview.total_income || 0)}`;
+    }
+
+    // Total Expenses
+    const expenseElement = document.getElementById('analyticsTotalExpenses');
+    if (expenseElement) {
+        expenseElement.textContent = `R$ ${formatCurrency(overview.total_expenses || 0)}`;
+    }
+
+    // Tendência
+    const trendElement = document.getElementById('analyticsTrend');
+    if (trendElement) {
+        const trendLabels = {
+            'up': '📈 Tendência de Alta',
+            'down': '📉 Tendência de Baixa',
+            'stable': '➡️ Estável'
+        };
+        trendElement.textContent = trendLabels[data.trend] || '➡️ Estável';
+        trendElement.className = `trend-indicator ${data.trend}`;
+    }
+
+    // Atualizar top categorias
+    const topCategoriesContainer = document.getElementById('analyticsTopCategories');
+    if (topCategoriesContainer && expensesByCategory.length > 0) {
+        const sortedCategories = [...expensesByCategory]
+            .sort((a, b) => b.amount - a.amount)
+            .slice(0, 5);
+
+        topCategoriesContainer.innerHTML = sortedCategories.map((cat, index) => {
+            const category = categories.find(c => c._id === cat.category_id);
+            const categoryName = category ? category.name : 'Outros';
+            const percentage = overview.total_expenses > 0 
+                ? (cat.amount / overview.total_expenses * 100).toFixed(1) 
+                : 0;
+
+            return `
+                <div class="category-row">
+                    <span class="rank">${index + 1}</span>
+                    <span class="category-name">${categoryName}</span>
+                    <span class="category-amount">R$ ${formatCurrency(cat.amount)}</span>
+                    <span class="category-percent">${percentage}%</span>
+                </div>
+            `;
+        }).join('');
+    }
+}
+
+function updateAnalyticsCharts(data) {
+    const monthlySummary = data.monthly_summary || [];
+
+    // Atualizar gráfico de tendência mensal
+    if (charts.analyticsTrend) {
+        const labels = monthlySummary.map(m => formatMonth(m.month));
+        const incomeData = monthlySummary.map(m => m.income || 0);
+        const expenseData = monthlySummary.map(m => m.expenses || 0);
+
+        charts.analyticsTrend.data.labels = labels;
+        charts.analyticsTrend.data.datasets[0].data = incomeData;
+        charts.analyticsTrend.data.datasets[1].data = expenseData;
+        charts.analyticsTrend.update();
+    }
+
+    // Atualizar gráfico de despesas por categoria
+    if (charts.analyticsCategoryPie && data.expenses_by_category) {
+        const expensesByCategory = data.expenses_by_category;
+        const labels = expensesByCategory.map(cat => {
+            const category = categories.find(c => c._id === cat.category_id);
+            return category ? category.name : 'Outros';
+        });
+
+        const colors = [
+            '#4f46e5', '#10b981', '#f59e0b', '#ef4444',
+            '#8b5cf6', '#06b6d4', '#ec4899', '#14b8a6'
+        ];
+
+        charts.analyticsCategoryPie.data.labels = labels;
+        charts.analyticsCategoryPie.data.datasets[0].data = expensesByCategory.map(c => c.amount);
+        charts.analyticsCategoryPie.data.datasets[0].backgroundColor = colors.slice(0, labels.length);
+        charts.analyticsCategoryPie.update();
+    }
+}
+
+async function loadForecast() {
+    const forecastSelect = document.getElementById('forecastMonths');
+    const months = forecastSelect ? parseInt(forecastSelect.value) : 3;
+
+    try {
+        const data = await apiCall(`/api/analytics/forecast?months=${months}`);
+        
+        if (data && data.forecast) {
+            displayForecast(data);
+        }
+    } catch (error) {
+        console.error('Erro ao carregar previsão:', error);
+    }
+}
+
+function displayForecast(data) {
+    const container = document.getElementById('forecastContainer');
+    if (!container) return;
+
+    const forecast = data.forecast || [];
+    const basis = data.basis || {};
+
+    if (forecast.length === 0) {
+        container.innerHTML = '<p style="text-align: center; color: var(--text-secondary);">Não há dados suficientes para projeção</p>';
+        return;
+    }
+
+    // Base info
+    const basisHtml = `
+        <div class="forecast-basis">
+            <div class="basis-item">
+                <span class="basis-label">Média de Gastos:</span>
+                <span class="basis-value">R$ ${formatCurrency(basis.avg_historical_expenses || 0)}</span>
+            </div>
+            <div class="basis-item">
+                <span class="basis-label">Média de Receitas:</span>
+                <span class="basis-value">R$ ${formatCurrency(basis.avg_historical_income || 0)}</span>
+            </div>
+        </div>
+    `;
+
+    // Forecast items
+    const forecastItems = forecast.map(item => {
+        const confidenceLabels = {
+            'low': 'Baixa confiança',
+            'medium': 'Confiança média',
+            'high': 'Alta confiança'
+        };
+
+        const confidenceClass = item.confidence;
+
+        return `
+            <div class="forecast-item">
+                <div class="forecast-header">
+                    <span class="forecast-month">${formatMonth(item.month)}</span>
+                    <span class="forecast-confidence ${confidenceClass}">${confidenceLabels[item.confidence]}</span>
+                </div>
+                <div class="forecast-values">
+                    <div class="forecast-expenses">
+                        <span class="label">Gastos Previstos:</span>
+                        <span class="value expense">R$ ${formatCurrency(item.predicted_expenses)}</span>
+                    </div>
+                    <div class="forecast-income">
+                        <span class="label">Receitas Previstas:</span>
+                        <span class="value income">R$ ${formatCurrency(item.predicted_income)}</span>
+                    </div>
+                    <div class="forecast-balance">
+                        <span class="label">Balanço Previsto:</span>
+                        <span class="value ${item.predicted_income - item.predicted_expenses >= 0 ? 'positive' : 'negative'}">
+                            R$ ${formatCurrency(item.predicted_income - item.predicted_expenses)}
+                        </span>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    container.innerHTML = basisHtml + forecastItems;
+}
+
+// =====================================================
+// FIM DAS FUNÇÕES DE ANALYTICS
+// =====================================================
+
 // Função de debug para verificar se os dados estão sendo carregados
 function debugDataLoading() {
     console.log('🔍 Estado dos dados:', {
@@ -539,7 +1191,8 @@ function debugDataLoading() {
         'Contas': accounts.length,
         'Orçamentos': budgets.length,
         'Receitas': incomes.length,
-        'Metas': goals.length
+        'Metas': goals.length,
+        'Transferências': transfers.length
     });
 }
 
@@ -624,6 +1277,7 @@ async function loadAccounts() {
         updateAccountSelects();
         updateIncomeAccountSelects(); // Popular selects específicos de receitas
         updateOverviewAccountSelect(); // Popular select da overview
+        updateTransferAccountSelects(); // Popular selects de transferência
         displayAccounts();
         updateAccountBalances(); // Atualiza o cálculo de saldos automático
         updateAccountSummary(); // Atualizar resumo se houver conta selecionada
@@ -949,7 +1603,12 @@ function onOverviewAccountSelectionChanged() {
 
 function updateOverviewAccountSummary() {
     const selectedAccountId = document.getElementById('overviewSelectedAccount').value;
-    const summaryContainer = document.getElementById('overviewAccountSummary');
+    const summaryContainer = document.getElementById('accountSummaryWidget');
+
+    if (!summaryContainer) {
+        console.warn('Widget de resumo da conta não encontrado');
+        return;
+    }
 
     if (!selectedAccountId) {
         summaryContainer.style.display = 'none';
@@ -984,12 +1643,19 @@ function updateOverviewAccountSummary() {
     const monthBalance = monthIncomes - monthExpenses;
 
     // Atualizar elementos do resumo
-    document.getElementById('overviewSummaryAccountName').textContent = selectedAccount.name;
-    document.getElementById('overviewSummaryAccountType').textContent = getAccountTypeLabel(selectedAccount.type);
-    document.getElementById('overviewAccountBalance').textContent = `R$ ${formatCurrency(selectedAccount.balance || 0)}`;
-    document.getElementById('overviewAccountIncomes').textContent = `R$ ${formatCurrency(monthIncomes)}`;
-    document.getElementById('overviewAccountExpenses').textContent = `R$ ${formatCurrency(monthExpenses)}`;
-    document.getElementById('overviewMonthBalance').textContent = `R$ ${formatCurrency(monthBalance)}`;
+    const nameElement = document.getElementById('overviewSummaryAccountName');
+    const typeElement = document.getElementById('overviewSummaryAccountType');
+    const balanceElement = document.getElementById('overviewAccountBalance');
+    const incomesElement = document.getElementById('overviewAccountIncomes');
+    const expensesElement = document.getElementById('overviewAccountExpenses');
+    const monthBalanceElement = document.getElementById('overviewMonthBalance');
+
+    if (nameElement) nameElement.textContent = selectedAccount.name;
+    if (typeElement) typeElement.textContent = getAccountTypeLabel(selectedAccount.type);
+    if (balanceElement) balanceElement.textContent = `R$ ${formatCurrency(selectedAccount.balance || 0)}`;
+    if (incomesElement) incomesElement.textContent = `R$ ${formatCurrency(monthIncomes)}`;
+    if (expensesElement) expensesElement.textContent = `R$ ${formatCurrency(monthExpenses)}`;
+    if (monthBalanceElement) monthBalanceElement.textContent = `R$ ${formatCurrency(monthBalance)}`;
 
     // Mostrar resumo
     summaryContainer.style.display = 'block';
@@ -1488,7 +2154,8 @@ async function refreshAllData() {
             loadIncomes(),
             loadBudgets(),
             loadAccounts(),
-            loadGoals()
+            loadGoals(),
+            loadTransfers()
         ]);
 
         // Usar a função centralizada de atualização
@@ -2178,6 +2845,7 @@ function initializeCharts() {
     createCategoryPieChart();
     createAnnualChart();
     createExpenseDistributionChart();
+    createAnalyticsCharts();
 }
 
 function createMonthlyTrendChart() {
@@ -2308,6 +2976,80 @@ function createExpenseDistributionChart() {
             }
         }
     });
+}
+
+function createAnalyticsCharts() {
+    // Analytics trend chart
+    const analyticsTrendCtx = document.getElementById('analyticsTrendChart');
+    if (analyticsTrendCtx) {
+        charts.analyticsTrend = new Chart(analyticsTrendCtx.getContext('2d'), {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    {
+                        label: 'Receitas',
+                        data: [],
+                        borderColor: '#10b981',
+                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                        fill: true,
+                        tension: 0.4
+                    },
+                    {
+                        label: 'Despesas',
+                        data: [],
+                        borderColor: '#ef4444',
+                        backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                        fill: true,
+                        tension: 0.4
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'top'
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            callback: function(value) {
+                                return 'R$ ' + value.toLocaleString('pt-BR');
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // Analytics category pie chart
+    const analyticsCategoryCtx = document.getElementById('analyticsCategoryChart');
+    if (analyticsCategoryCtx) {
+        charts.analyticsCategoryPie = new Chart(analyticsCategoryCtx.getContext('2d'), {
+            type: 'doughnut',
+            data: {
+                labels: [],
+                datasets: [{
+                    data: [],
+                    backgroundColor: []
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        position: 'right'
+                    }
+                }
+            }
+        });
+    }
 }
 
 function updateOverviewCharts() {
