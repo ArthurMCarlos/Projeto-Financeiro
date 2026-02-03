@@ -314,9 +314,6 @@
                     <div class="page-header">
                         <h3>Minhas Contas</h3>
                         <div class="header-actions">
-                            <button onclick="openTransferModal()" class="btn-secondary" title="Transferir entre contas">
-                                💸 Transferir
-                            </button>
                             <button onclick="recalculateAllBalances()" class="btn-secondary" title="Recalcular saldos automáticos">
                                 🔄 Recalcular Saldos
                             </button>
@@ -585,48 +582,6 @@
                 <div class="form-actions">
                     <button type="submit" class="btn-primary">Salvar</button>
                     <button type="button" class="btn-secondary" onclick="closeGoalModal()">Cancelar</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <!-- Transfer Modal -->
-    <div id="transferModal" class="modal">
-        <div class="modal-content">
-            <span class="close">&times;</span>
-            <h2 id="transferModalTitle">Nova Transferência</h2>
-            <form id="transferForm">
-                <div class="form-group">
-                    <label for="transferFromAccount">Conta de Origem:</label>
-                    <select id="transferFromAccount" required class="input">
-                        <option value="">Selecione a conta de origem</option>
-                    </select>
-                    <small class="form-help">Saldo disponível será verificado automaticamente</small>
-                </div>
-                <div class="form-group">
-                    <label for="transferToAccount">Conta de Destino:</label>
-                    <select id="transferToAccount" required class="input">
-                        <option value="">Selecione a conta de destino</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label for="transferAmount">Valor (R$):</label>
-                    <input type="number" id="transferAmount" step="0.01" min="0.01" required class="input" placeholder="0,00">
-                </div>
-                <div class="form-group">
-                    <label for="transferDescription">Descrição:</label>
-                    <input type="text" id="transferDescription" required class="input" placeholder="Ex: Transferência para poupança">
-                </div>
-                <!-- Info de saldo da conta de origem -->
-                <div id="transferFromBalanceInfo" class="transfer-balance-info" style="display: none;">
-                    <div class="balance-display">
-                        <span class="label">Saldo disponível:</span>
-                        <span class="value" id="transferFromBalanceValue">R$ 0,00</span>
-                    </div>
-                </div>
-                <div class="form-actions">
-                    <button type="submit" class="btn-primary">Confirmar Transferência</button>
-                    <button type="button" class="btn-secondary" onclick="closeTransferModal()">Cancelar</button>
                 </div>
             </form>
         </div>
