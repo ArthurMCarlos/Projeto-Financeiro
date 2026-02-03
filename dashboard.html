@@ -236,7 +236,6 @@
                         <table id="incomesTable">
                             <thead>
                                 <tr>
-                                    <th>Data</th>
                                     <th>Mês</th>
                                     <th>Fonte</th>
                                     <th>Valor</th>
@@ -285,7 +284,6 @@
                         <table id="expensesTable">
                             <thead>
                                 <tr>
-                                    <th>Data</th>
                                     <th>Mês</th>
                                     <th>Motivo</th>
                                     <th>Valor</th>
@@ -402,8 +400,8 @@
             <form id="incomeForm">
                 <input type="hidden" id="incomeId">
                 <div class="form-group">
-                    <label for="incomeDate">Data:</label>
-                    <input type="date" id="incomeDate" required class="input">
+                    <label for="incomeMonth">Mês:</label>
+                    <input type="month" id="incomeMonth" required class="input">
                 </div>
                 <div class="form-group">
                     <label for="incomeSource">Fonte:</label>
@@ -433,8 +431,8 @@
             <form id="expenseForm">
                 <input type="hidden" id="expenseId">
                 <div class="form-group">
-                    <label for="expenseDate">Data:</label>
-                    <input type="date" id="expenseDate" required class="input">
+                    <label for="expenseMonth">Mês:</label>
+                    <input type="month" id="expenseMonth" required class="input">
                 </div>
                 <div class="form-group">
                     <label for="expenseReason">Motivo:</label>
@@ -468,8 +466,8 @@
             <form id="budgetForm">
                 <input type="hidden" id="budgetId">
                 <div class="form-group">
-                    <label for="budgetDate">Data:</label>
-                    <input type="date" id="budgetDate" required class="input">
+                    <label for="budgetMonth">Mês:</label>
+                    <input type="month" id="budgetMonth" required class="input">
                 </div>
                 <div class="form-group">
                     <label for="budgetCategory">Categoria:</label>
@@ -582,7 +580,7 @@
                 </div>
                 <div class="form-group">
                     <label for="goalDeadline">Prazo:</label>
-                    <input type="date" id="goalDeadline" required class="input">
+                    <input type="month" id="goalDeadline" required class="input">
                 </div>
                 <div class="form-actions">
                     <button type="submit" class="btn-primary">Salvar</button>
