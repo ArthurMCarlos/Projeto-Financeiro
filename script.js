@@ -351,7 +351,8 @@ async function saveTransaction(event) {
     const transactionId = document.getElementById('transactionId').value;
     
     const transactionData = {
-        month: formData.get('month') || document.getElementById('month').value,
+        date: formData.get('date') || document.getElementById('date').value,
+        month: (formData.get('date') || document.getElementById('date').value)?.substring(0, 7),
         reason: formData.get('reason') || document.getElementById('reason').value,
         expense: parseFloat(document.getElementById('expense').value) || 0,
         current_value: parseFloat(document.getElementById('currentValue').value) || 0,
@@ -407,7 +408,7 @@ function editTransaction(transactionId) {
 
     // Fill form with transaction data
     document.getElementById('transactionId').value = transaction._id;
-    document.getElementById('month').value = transaction.month;
+    document.getElementById('date').value = transaction.date || transaction.month;
     document.getElementById('reason').value = transaction.reason;
     document.getElementById('expense').value = transaction.expense || 0;
     document.getElementById('currentValue').value = transaction.current_value || 0;
@@ -425,10 +426,10 @@ function openTransactionModal() {
     document.getElementById('transactionId').value = '';
     document.getElementById('modalTitle').textContent = 'Nova Transação';
     
-    // Set current month as default
+    // Set current date as default
     const now = new Date();
-    const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-    document.getElementById('month').value = currentMonth;
+    const currentDate = now.toISOString().split('T')[0];
+    document.getElementById('date').value = currentDate;
     
     document.getElementById('transactionModal').style.display = 'block';
 }
@@ -821,7 +822,19 @@ function formatCurrency(value) {
     }).format(value);
 }
 
+function formatDate(dateString) {
+    if (!dateString) return '-';
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return dateString;
+    return date.toLocaleDateString('pt-BR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+    });
+}
+
 function formatMonth(monthString) {
+    if (!monthString) return '-';
     const [year, month] = monthString.split('-');
     const date = new Date(year, month - 1);
     return date.toLocaleDateString('pt-BR', { 
