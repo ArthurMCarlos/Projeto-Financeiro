@@ -1000,15 +1000,14 @@ def get_transactions(current_user):
 def create_transaction(current_user):
     data = request.get_json()
 
-    required_fields = ['date', 'reason', 'category_id']
+    required_fields = ['month', 'reason', 'category_id']
     if not data or not all(k in data for k in required_fields):
         return jsonify({'message': 'Dados incompletos'}), 400
 
     user_id = str(current_user['_id'])
 
     transaction_data = {
-        'date': data['date'],
-        'month': data.get('month', data['date'][:7]),  # Extrai YYYY-MM de YYYY-MM-DD
+        'month': data['month'],
         'reason': data['reason'],
         'expense': float(data.get('expense', 0)),
         'current_value': float(data.get('current_value', 0)),
@@ -1043,7 +1042,7 @@ def update_transaction(current_user, transaction_id):
     user_id = str(current_user['_id'])
 
     update_data = {}
-    for field in ['date', 'month', 'reason', 'expense', 'current_value', 'category_id', 'income', 'account_id']:
+    for field in ['month', 'reason', 'expense', 'current_value', 'category_id', 'income', 'account_id']:
         if field in data:
             if field in ['expense', 'current_value', 'income']:
                 update_data[field] = float(data[field])
@@ -1539,15 +1538,14 @@ def get_incomes(current_user):
 def create_income(current_user):
     data = request.get_json()
 
-    required_fields = ['date', 'source', 'amount']
+    required_fields = ['month', 'source', 'amount']
     if not data or not all(k in data for k in required_fields):
         return jsonify({'message': 'Dados incompletos'}), 400
 
     user_id = str(current_user['_id'])
 
     income_data = {
-        'date': data['date'],
-        'month': data.get('month', data['date'][:7]),  # Extrai YYYY-MM de YYYY-MM-DD
+        'month': data['month'],
         'source': data['source'],
         'amount': float(data['amount']),
         'account_id': data.get('account_id'),
@@ -1576,7 +1574,7 @@ def update_income(current_user, income_id):
     user_id = str(current_user['_id'])
 
     update_data = {}
-    for field in ['date', 'month', 'source', 'amount', 'account_id']:
+    for field in ['month', 'source', 'amount', 'account_id']:
         if field in data:
             if field == 'amount':
                 update_data[field] = float(data[field])
