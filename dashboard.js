@@ -380,10 +380,6 @@ function initializeEventListeners() {
     document.getElementById('addAccountBtn').addEventListener('click', () => openAccountModal());
     document.getElementById('accountForm').addEventListener('submit', saveAccount);
 
-    // Transfer events
-    document.getElementById('transferForm').addEventListener('submit', saveTransfer);
-    document.getElementById('transferFromAccount').addEventListener('change', onTransferFromAccountChanged);
-
     // Goal events
     document.getElementById('addGoalBtn').addEventListener('click', () => openGoalModal());
     document.getElementById('goalForm').addEventListener('submit', saveGoal);
@@ -628,7 +624,6 @@ async function loadAccounts() {
         updateAccountSelects();
         updateIncomeAccountSelects(); // Popular selects específicos de receitas
         updateOverviewAccountSelect(); // Popular select da overview
-        updateTransferAccountSelects(); // Popular selects do modal de transferência
         displayAccounts();
         updateAccountBalances(); // Atualiza o cálculo de saldos automático
         updateAccountSummary(); // Atualizar resumo se houver conta selecionada
@@ -1089,9 +1084,6 @@ function openIncomeModal(income = null) {
 
     form.reset();
 
-    // Limpar campo de ID explicitamente
-    document.getElementById('incomeId').value = '';
-
     if (income) {
         document.getElementById('incomeModalTitle').textContent = 'Editar Receita';
         document.getElementById('incomeId').value = income._id;
@@ -1109,15 +1101,7 @@ function openIncomeModal(income = null) {
 }
 
 function closeIncomeModal() {
-    const modal = document.getElementById('incomeModal');
-    const form = document.getElementById('incomeForm');
-
-    modal.style.display = 'none';
-
-    // Limpar formulário completamente
-    form.reset();
-    document.getElementById('incomeId').value = '';
-    document.getElementById('incomeModalTitle').textContent = 'Nova Receita';
+    document.getElementById('incomeModal').style.display = 'none';
 }
 
 async function saveIncome(event) {
@@ -1131,45 +1115,28 @@ async function saveIncome(event) {
         account_id: document.getElementById('incomeAccount').value || null
     };
 
-    // Validação básica
-    if (!incomeData.month || !incomeData.source || isNaN(incomeData.amount) || incomeData.amount <= 0) {
-        showToast('Por favor, preencha todos os campos corretamente', 'error');
-        return;
-    }
-
-    // Mostrar loading
-    const submitBtn = event.target.querySelector('button[type="submit"]');
-    const originalText = submitBtn.textContent;
-    submitBtn.disabled = true;
-    submitBtn.textContent = 'Salvando...';
-
     try {
         if (incomeId) {
             await apiCall(`/api/incomes/${incomeId}`, {
                 method: 'PUT',
                 body: JSON.stringify(incomeData)
             });
-            showToast('Receita atualizada com sucesso!', 'success');
         } else {
             await apiCall('/api/incomes', {
                 method: 'POST',
                 body: JSON.stringify(incomeData)
             });
-            showToast('Receita salva com sucesso!', 'success');
         }
 
         closeIncomeModal();
-
-        // Usar refreshAllData para garantir atualização completa dos dados
-        await refreshAllData();
-
+        await loadIncomes();
+        await loadAccounts(); // Recarrega as contas para atualizar os saldos
+        recalculateAllBalances(); // Recalcula todos os saldos automaticamente
+        updateOverview();
+        showNotification('Receita salva com sucesso!', 'success');
     } catch (error) {
         console.error('Erro ao salvar receita:', error);
-        showToast('Erro ao salvar receita: ' + error.message, 'error');
-    } finally {
-        // Restaurar botão
-        submitBtn.disabled = false;
-        submitBtn.textContent = originalText;
+        showNotification('Erro ao salvar receita', 'error');
     }
 }
 
@@ -1190,13 +1157,14 @@ async function deleteIncome(incomeId) {
             method: 'DELETE'
         });
 
-        showToast('Receita excluída com sucesso!', 'success');
-
-        // Usar refreshAllData para garantir atualização completa dos dados
-        await refreshAllData();
+        await loadIncomes();
+        await loadAccounts(); // Recarrega as contas para atualizar os saldos
+        recalculateAllBalances(); // Recalcula todos os saldos automaticamente
+        updateOverview();
+        showNotification('Receita excluída com sucesso!', 'success');
     } catch (error) {
         console.error('Erro ao excluir receita:', error);
-        showToast('Erro ao excluir receita: ' + error.message, 'error');
+        showNotification('Erro ao excluir receita', 'error');
     }
 }
 
@@ -1401,13 +1369,14 @@ async function deleteExpense(expenseId) {
             method: 'DELETE'
         });
 
-        showToast('Despesa excluída com sucesso!', 'success');
-
-        // Usar refreshAllData para garantir atualização completa dos dados
-        await refreshAllData();
+        await loadTransactions();
+        await loadAccounts(); // Recarrega as contas para atualizar os saldos
+        recalculateAllBalances(); // Recalcula todos os saldos automaticamente
+        updateOverview();
+        showNotification('Despesa excluída com sucesso!', 'success');
     } catch (error) {
         console.error('Erro ao excluir despesa:', error);
-        showToast('Erro ao excluir despesa: ' + error.message, 'error');
+        showNotification('Erro ao excluir despesa', 'error');
     }
 }
 
@@ -1639,44 +1608,23 @@ async function saveBudget(event) {
         amount: parseFloat(document.getElementById('budgetAmount').value)
     };
 
-    // Validação básica
-    if (!budgetData.month || !budgetData.category_id || isNaN(budgetData.amount) || budgetData.amount <= 0) {
-        showToast('Por favor, preencha todos os campos corretamente', 'error');
-        return;
-    }
-
-    // Mostrar loading
-    const submitBtn = event.target.querySelector('button[type="submit"]');
-    const originalText = submitBtn.textContent;
-    submitBtn.disabled = true;
-    submitBtn.textContent = 'Salvando...';
-
     try {
         if (budgetId) {
             await apiCall(`/api/budgets/${budgetId}`, {
                 method: 'PUT',
                 body: JSON.stringify(budgetData)
             });
-            showToast('Orçamento atualizado com sucesso!', 'success');
         } else {
             await apiCall('/api/budgets', {
                 method: 'POST',
                 body: JSON.stringify(budgetData)
             });
-            showToast('Orçamento criado com sucesso!', 'success');
         }
 
         closeBudgetModal();
-
-        // Usar refreshAllData para garantir atualização completa dos dados
-        await refreshAllData();
+        await loadBudgets();
     } catch (error) {
         console.error('Erro ao salvar orçamento:', error);
-        showToast('Erro ao salvar orçamento: ' + error.message, 'error');
-    } finally {
-        // Restaurar botão
-        submitBtn.disabled = false;
-        submitBtn.textContent = originalText;
     }
 }
 
@@ -1697,13 +1645,9 @@ async function deleteBudget(budgetId) {
             method: 'DELETE'
         });
 
-        showToast('Orçamento excluído com sucesso!', 'success');
-
-        // Usar refreshAllData para garantir atualização completa dos dados
-        await refreshAllData();
+        await loadBudgets();
     } catch (error) {
         console.error('Erro ao excluir orçamento:', error);
-        showToast('Erro ao excluir orçamento: ' + error.message, 'error');
     }
 }
 
@@ -1855,21 +1799,10 @@ async function saveAccount(event) {
         type: accountType
     };
 
-    // Validação básica
-    if (!accountData.name) {
-        showToast('O nome da conta é obrigatório', 'error');
-        return;
-    }
-
     // Adicionar campos específicos baseado no tipo
     if (accountType === 'cartao') {
         const creditLimit = parseFloat(document.getElementById('accountCreditLimit').value) || 0;
         const closingDay = parseInt(document.getElementById('accountClosingDay').value) || 1;
-
-        if (creditLimit <= 0) {
-            showToast('O limite do cartão deve ser maior que zero', 'error');
-            return;
-        }
 
         accountData.credit_limit = creditLimit;
         accountData.closing_day = closingDay;
@@ -1878,38 +1811,27 @@ async function saveAccount(event) {
         accountData.balance = parseFloat(document.getElementById('accountBalance').value) || 0;
     }
 
-    // Mostrar loading
-    const submitBtn = event.target.querySelector('button[type="submit"]');
-    const originalText = submitBtn.textContent;
-    submitBtn.disabled = true;
-    submitBtn.textContent = 'Salvando...';
-
     try {
         if (accountId) {
             await apiCall(`/api/accounts/${accountId}`, {
                 method: 'PUT',
                 body: JSON.stringify(accountData)
             });
-            showToast('Conta atualizada com sucesso!', 'success');
+            showNotification('Conta atualizada com sucesso!', 'success');
         } else {
             await apiCall('/api/accounts', {
                 method: 'POST',
                 body: JSON.stringify(accountData)
             });
-            showToast('Conta criada com sucesso!', 'success');
+            showNotification('Conta criada com sucesso!', 'success');
         }
 
         closeAccountModal();
-
-        // Usar refreshAllData para garantir atualização completa dos dados
-        await refreshAllData();
+        await loadAccounts();
+        updateOverview();
     } catch (error) {
         console.error('Erro ao salvar conta:', error);
-        showToast('Erro ao salvar conta: ' + error.message, 'error');
-    } finally {
-        // Restaurar botão
-        submitBtn.disabled = false;
-        submitBtn.textContent = originalText;
+        showNotification('Erro ao salvar conta', 'error');
     }
 }
 
@@ -1930,13 +1852,12 @@ async function deleteAccount(accountId) {
             method: 'DELETE'
         });
 
-        showToast('Conta excluída com sucesso!', 'success');
-
-        // Usar refreshAllData para garantir atualização completa dos dados
-        await refreshAllData();
+        await loadAccounts();
+        updateOverview();
+        showNotification('Conta excluída com sucesso!', 'success');
     } catch (error) {
         console.error('Erro ao excluir conta:', error);
-        showToast('Erro ao excluir conta: ' + error.message, 'error');
+        showNotification('Erro ao excluir conta', 'error');
     }
 }
 
@@ -2030,42 +1951,23 @@ async function saveGoal(event) {
         deadline: document.getElementById('goalDeadline').value
     };
 
-    // Validação básica
-    if (!goalData.name || isNaN(goalData.target_amount) || goalData.target_amount <= 0 || !goalData.deadline) {
-        showToast('Por favor, preencha todos os campos corretamente', 'error');
-        return;
-    }
-
-    // Mostrar loading
-    const submitBtn = event.target.querySelector('button[type="submit"]');
-    const originalText = submitBtn.textContent;
-    submitBtn.disabled = true;
-    submitBtn.textContent = 'Salvando...';
-
     try {
         if (goalId) {
             await apiCall(`/api/goals/${goalId}`, {
                 method: 'PUT',
                 body: JSON.stringify(goalData)
             });
-            showToast('Meta atualizada com sucesso!', 'success');
         } else {
             await apiCall('/api/goals', {
                 method: 'POST',
                 body: JSON.stringify(goalData)
             });
-            showToast('Meta criada com sucesso!', 'success');
         }
 
         closeGoalModal();
         await loadGoals();
     } catch (error) {
         console.error('Erro ao salvar meta:', error);
-        showToast('Erro ao salvar meta: ' + error.message, 'error');
-    } finally {
-        // Restaurar botão
-        submitBtn.disabled = false;
-        submitBtn.textContent = originalText;
     }
 }
 
@@ -2086,205 +1988,9 @@ async function deleteGoal(goalId) {
             method: 'DELETE'
         });
 
-        showToast('Meta excluída com sucesso!', 'success');
         await loadGoals();
     } catch (error) {
         console.error('Erro ao excluir meta:', error);
-        showToast('Erro ao excluir meta: ' + error.message, 'error');
-    }
-}
-
-// =====================================================
-// TRANSFER FUNCTIONS
-// =====================================================
-
-// Atualiza os selects de conta no modal de transferência
-function updateTransferAccountSelects() {
-    const fromSelect = document.getElementById('transferFromAccount');
-    const toSelect = document.getElementById('transferToAccount');
-
-    if (!fromSelect || !toSelect) return;
-
-    // Manter valores atuais
-    const fromCurrentValue = fromSelect.value;
-    const toCurrentValue = toSelect.value;
-
-    // Filtrar apenas contas válidas para transferência (não cartão de crédito)
-    const validAccounts = accounts.filter(a => a.type !== 'cartao');
-
-    // Limpar opções (exceto a primeira)
-    const fromOptionsHTML = '<option value="">Selecione a conta de origem</option>';
-    const toOptionsHTML = '<option value="">Selecione a conta de destino</option>';
-
-    fromSelect.innerHTML = fromOptionsHTML;
-    toSelect.innerHTML = toOptionsHTML;
-
-    // Adicionar contas disponíveis
-    validAccounts.forEach(account => {
-        const fromOption = document.createElement('option');
-        fromOption.value = account._id;
-        fromOption.textContent = `${account.name} (R$ ${formatCurrency(account.balance || 0)})`;
-        fromSelect.appendChild(fromOption);
-
-        const toOption = document.createElement('option');
-        toOption.value = account._id;
-        toOption.textContent = account.name;
-        toSelect.appendChild(toOption);
-    });
-
-    // Restaurar valores selecionados
-    if (fromCurrentValue) fromSelect.value = fromCurrentValue;
-    if (toCurrentValue) toSelect.value = toCurrentValue;
-}
-
-function openTransferModal() {
-    const modal = document.getElementById('transferModal');
-    const form = document.getElementById('transferForm');
-
-    form.reset();
-
-    // Atualizar selects de conta
-    updateTransferAccountSelects();
-
-    // Ocultar info de saldo
-    document.getElementById('transferFromBalanceInfo').style.display = 'none';
-
-    document.getElementById('transferModalTitle').textContent = 'Nova Transferência';
-    modal.style.display = 'block';
-}
-
-function closeTransferModal() {
-    document.getElementById('transferModal').style.display = 'none';
-}
-
-// Atualiza a info de saldo quando a conta de origem é alterada
-function onTransferFromAccountChanged() {
-    const fromAccountId = document.getElementById('transferFromAccount').value;
-    const balanceInfo = document.getElementById('transferFromBalanceInfo');
-    const balanceValue = document.getElementById('transferFromBalanceValue');
-
-    if (!fromAccountId) {
-        balanceInfo.style.display = 'none';
-        return;
-    }
-
-    const account = accounts.find(a => a._id === fromAccountId);
-    if (account) {
-        balanceValue.textContent = `R$ ${formatCurrency(account.balance || 0)}`;
-        balanceInfo.style.display = 'block';
-
-        // Adicionar classe de cor baseada no saldo
-        balanceInfo.classList.remove('positive', 'negative', 'zero');
-        if ((account.balance || 0) > 0) {
-            balanceInfo.classList.add('positive');
-        } else {
-            balanceInfo.classList.add('negative');
-        }
-    } else {
-        balanceInfo.style.display = 'none';
-    }
-}
-
-async function saveTransfer(event) {
-    event.preventDefault();
-
-    const fromAccountId = document.getElementById('transferFromAccount').value;
-    const toAccountId = document.getElementById('transferToAccount').value;
-    const amount = parseFloat(document.getElementById('transferAmount').value);
-    const description = document.getElementById('transferDescription').value;
-
-    // Validações básicas
-    if (!fromAccountId || !toAccountId || !amount || !description) {
-        showToast('Por favor, preencha todos os campos', 'error');
-        return;
-    }
-
-    if (fromAccountId === toAccountId) {
-        showToast('A conta de origem e destino não podem ser a mesma', 'error');
-        return;
-    }
-
-    if (amount <= 0) {
-        showToast('O valor da transferência deve ser maior que zero', 'error');
-        return;
-    }
-
-    // Verificar saldo da conta de origem
-    const fromAccount = accounts.find(a => a._id === fromAccountId);
-    if (!fromAccount) {
-        showToast('Conta de origem não encontrada', 'error');
-        return;
-    }
-
-    const availableBalance = fromAccount.balance || 0;
-    if (availableBalance < amount) {
-        showToast(`Saldo insuficiente! Saldo disponível: R$ ${formatCurrency(availableBalance)}`, 'error');
-        return;
-    }
-
-    // Confirmação do usuário
-    const toAccount = accounts.find(a => a._id === toAccountId);
-    const confirmMessage = `
-        🔄 Confirmar Transferência?
-
-        De: ${fromAccount.name}
-        Para: ${toAccount.name}
-        Valor: R$ ${formatCurrency(amount)}
-        Descrição: ${description}
-
-        Saldo após transferência: R$ ${formatCurrency(availableBalance - amount)}
-    `;
-
-    if (!confirm(confirmMessage)) {
-        showToast('Transferência cancelada pelo usuário', 'info');
-        return;
-    }
-
-    // Mostrar loading
-    const submitBtn = event.target.querySelector('button[type="submit"]');
-    const originalText = submitBtn.textContent;
-    submitBtn.disabled = true;
-    submitBtn.textContent = 'Processando...';
-
-    try {
-        const transferData = {
-            from_account_id: fromAccountId,
-            to_account_id: toAccountId,
-            amount: amount,
-            description: description
-        };
-
-        const response = await apiCall('/api/transactions/transfer', {
-            method: 'POST',
-            body: JSON.stringify(transferData)
-        });
-
-        if (response) {
-            showToast(`✅ Transferência realizada com sucesso!`, 'success');
-
-            // Mostrar detalhes da transferência
-            const detailsMessage = `
-                De: ${response.from_account.name}
-                Para: ${response.to_account.name}
-                Valor: R$ ${formatCurrency(response.amount)}
-
-                Saldo anterior (${response.from_account.name}): R$ ${formatCurrency(response.from_account.previous_balance)}
-                Novo saldo (${response.from_account.name}): R$ ${formatCurrency(response.from_account.new_balance)}
-            `;
-            console.log('Transferência:', detailsMessage);
-
-            closeTransferModal();
-
-            // Recarregar dados e atualizar interface
-            await refreshAllData();
-        }
-    } catch (error) {
-        console.error('Erro na transferência:', error);
-        showToast(error.message || 'Erro ao realizar transferência', 'error');
-    } finally {
-        // Restaurar botão
-        submitBtn.disabled = false;
-        submitBtn.textContent = originalText;
     }
 }
 
@@ -2359,31 +2065,19 @@ async function saveCategory(event) {
         description: document.getElementById('categoryDescription').value
     };
 
-    // Validação básica
-    if (!categoryData.name) {
-        showToast('O nome da categoria é obrigatório', 'error');
-        return;
-    }
-
-    // Mostrar loading
-    const submitBtn = event.target.querySelector('button[type="submit"]');
-    const originalText = submitBtn.textContent;
-    submitBtn.disabled = true;
-    submitBtn.textContent = 'Salvando...';
-
     try {
         if (categoryId) {
             await apiCall(`/api/categories/${categoryId}`, {
                 method: 'PUT',
                 body: JSON.stringify(categoryData)
             });
-            showToast('Categoria atualizada com sucesso!', 'success');
+            showNotification('Categoria atualizada com sucesso!', 'success');
         } else {
             await apiCall('/api/categories', {
                 method: 'POST',
                 body: JSON.stringify(categoryData)
             });
-            showToast('Categoria criada com sucesso!', 'success');
+            showNotification('Categoria criada com sucesso!', 'success');
         }
 
         await loadCategories();
@@ -2393,11 +2087,7 @@ async function saveCategory(event) {
         updateOverview();
     } catch (error) {
         console.error('Erro ao salvar categoria:', error);
-        showToast(error.message || 'Erro ao salvar categoria', 'error');
-    } finally {
-        // Restaurar botão
-        submitBtn.disabled = false;
-        submitBtn.textContent = originalText;
+        showNotification(error.message || 'Erro ao salvar categoria', 'error');
     }
 }
 
@@ -2418,14 +2108,13 @@ async function deleteCategory(categoryId) {
             method: 'DELETE'
         });
 
-        showToast('Categoria excluída com sucesso!', 'success');
-
         await loadCategories();
         displayCategories();
         updateCategorySelects();
+        showNotification('Categoria excluída com sucesso!', 'success');
     } catch (error) {
         console.error('Erro ao excluir categoria:', error);
-        showToast(error.message || 'Erro ao excluir categoria', 'error');
+        showNotification(error.message || 'Erro ao excluir categoria', 'error');
     }
 }
 
