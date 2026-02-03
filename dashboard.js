@@ -1281,7 +1281,7 @@ function openExpenseModal(expense = null) {
     if (expense) {
         document.getElementById('expenseModalTitle').textContent = 'Editar Despesa';
         document.getElementById('expenseId').value = expense._id;
-        document.getElementById('expenseDate').value = expense.month ? `${expense.month}-01` : '';
+        document.getElementById('expenseMonth').value = expense.month;
         document.getElementById('expenseReason').value = expense.reason;
         document.getElementById('expenseAmount').value = expense.expense;
         document.getElementById('expenseCategory').value = expense.category_id;
@@ -1289,7 +1289,7 @@ function openExpenseModal(expense = null) {
     } else {
         document.getElementById('expenseModalTitle').textContent = 'Nova Despesa';
         const now = new Date();
-        document.getElementById('expenseDate').value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+        document.getElementById('expenseMonth').value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     }
 
     modal.style.display = 'block';
@@ -1304,8 +1304,7 @@ async function saveExpense(event) {
 
     const expenseId = document.getElementById('expenseId').value;
     const expenseAmount = parseFloat(document.getElementById('expenseAmount').value);
-    const expenseDate = document.getElementById('expenseDate').value;
-    const expenseMonth = expenseDate.substring(0, 7);
+    const expenseMonth = document.getElementById('expenseMonth').value;
     const categoryId = document.getElementById('expenseCategory').value;
 
     const expenseData = {
