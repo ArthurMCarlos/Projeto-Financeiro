@@ -380,6 +380,12 @@ function initializeEventListeners() {
     document.getElementById('addAccountBtn').addEventListener('click', () => openAccountModal());
     document.getElementById('accountForm').addEventListener('submit', saveAccount);
 
+    // Transfer events
+    document.getElementById('transferBtn').addEventListener('click', () => openTransferModal());
+    document.getElementById('transferForm').addEventListener('submit', saveTransfer);
+    document.getElementById('transferFromAccount').addEventListener('change', updateFromAccountBalance);
+    document.getElementById('transferToAccount').addEventListener('change', validateTransferAccounts);
+
     // Goal events
     document.getElementById('addGoalBtn').addEventListener('click', () => openGoalModal());
     document.getElementById('goalForm').addEventListener('submit', saveGoal);
@@ -1858,6 +1864,133 @@ async function deleteAccount(accountId) {
     } catch (error) {
         console.error('Erro ao excluir conta:', error);
         showNotification('Erro ao excluir conta', 'error');
+    }
+}
+
+// =====================================================
+// TRANSFER FUNCTIONS
+// =====================================================
+
+function openTransferModal() {
+    const modal = document.getElementById('transferModal');
+    const form = document.getElementById('transferForm');
+
+    form.reset();
+
+    // Popular selects de contas (excluindo cartões de crédito como origem)
+    const fromSelect = document.getElementById('transferFromAccount');
+    const toSelect = document.getElementById('transferToAccount');
+
+    fromSelect.innerHTML = '<option value="">Selecione a conta de origem</option>';
+    toSelect.innerHTML = '<option value="">Selecione a conta de destino</option>';
+
+    accounts.forEach(account => {
+        // Para conta de origem, não permite cartão de crédito
+        if (account.type !== 'cartao') {
+            const optionFrom = document.createElement('option');
+            optionFrom.value = account._id;
+            optionFrom.textContent = `${account.name} (R$ ${formatCurrency(account.balance || 0)})`;
+            optionFrom.dataset.balance = account.balance || 0;
+            fromSelect.appendChild(optionFrom);
+        }
+
+        // Para conta de destino, permite qualquer tipo
+        const optionTo = document.createElement('option');
+        optionTo.value = account._id;
+        optionTo.textContent = `${account.name} (R$ ${formatCurrency(account.balance || 0)})`;
+        optionTo.dataset.balance = account.balance || 0;
+        toSelect.appendChild(optionTo);
+    });
+
+    document.getElementById('fromAccountBalance').textContent = 'R$ 0,00';
+
+    modal.style.display = 'block';
+}
+
+function closeTransferModal() {
+    document.getElementById('transferModal').style.display = 'none';
+}
+
+function updateFromAccountBalance() {
+    const fromSelect = document.getElementById('transferFromAccount');
+    const selectedOption = fromSelect.options[fromSelect.selectedIndex];
+    const balance = selectedOption.dataset.balance || 0;
+
+    document.getElementById('fromAccountBalance').textContent = `R$ ${formatCurrency(balance)}`;
+}
+
+function validateTransferAccounts() {
+    const fromSelect = document.getElementById('transferFromAccount');
+    const toSelect = document.getElementById('transferToAccount');
+
+    // Validar que as contas são diferentes
+    if (fromSelect.value && toSelect.value && fromSelect.value === toSelect.value) {
+        showToast('A conta de origem e destino não podem ser iguais!', 'warning');
+        toSelect.value = '';
+    }
+}
+
+async function saveTransfer(event) {
+    event.preventDefault();
+
+    const fromAccountId = document.getElementById('transferFromAccount').value;
+    const toAccountId = document.getElementById('transferToAccount').value;
+    const amount = parseFloat(document.getElementById('transferAmount').value);
+    const description = document.getElementById('transferDescription').value || 'Transferência entre contas';
+
+    // Validações
+    if (!fromAccountId || !toAccountId) {
+        showToast('Selecione ambas as contas!', 'error');
+        return;
+    }
+
+    if (fromAccountId === toAccountId) {
+        showToast('A conta de origem e destino não podem ser iguais!', 'error');
+        return;
+    }
+
+    if (amount <= 0) {
+        showToast('O valor deve ser maior que zero!', 'error');
+        return;
+    }
+
+    // Verificar saldo
+    const fromAccount = accounts.find(a => a._id === fromAccountId);
+    if (fromAccount && (fromAccount.balance || 0) < amount) {
+        showToast(`Saldo insuficiente! Saldo atual: R$ ${formatCurrency(fromAccount.balance || 0)}`, 'error');
+        return;
+    }
+
+    // Mostrar loading
+    const submitBtn = event.target.querySelector('button[type="submit"]');
+    const originalText = submitBtn.textContent;
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Transferindo...';
+
+    try {
+        const response = await apiCall('/api/transfer', {
+            method: 'POST',
+            body: JSON.stringify({
+                from_account_id: fromAccountId,
+                to_account_id: toAccountId,
+                amount: amount,
+                description: description
+            })
+        });
+
+        closeTransferModal();
+
+        // Recarregar dados
+        await loadAccounts();
+        updateOverview();
+
+        showToast(`Transferência de R$ ${formatCurrency(amount)} realizada com sucesso!`, 'success');
+    } catch (error) {
+        console.error('Erro ao transferir:', error);
+        showToast(error.message || 'Erro ao realizar transferência', 'error');
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = originalText;
     }
 }
 
