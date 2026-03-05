@@ -189,6 +189,7 @@ budgets_collection = db.budgets if db is not None else None
 accounts_collection = db.accounts if db is not None else None
 goals_collection = db.goals if db is not None else None
 credit_card_resets_collection = db.credit_card_resets if db is not None else None
+transfers_collection = db.transfers if db is not None else None
 
 # In-memory storage for development/fallback
 memory_storage = {
@@ -199,7 +200,8 @@ memory_storage = {
     'budgets': [],
     'accounts': [],
     'goals': [],
-    'credit_card_resets': []
+    'credit_card_resets': [],
+    'transfers': []
 }
 
 # =====================================================
@@ -1409,6 +1411,159 @@ def delete_budget(current_user, budget_id):
         memory_storage['budgets'].remove(budget)
 
     return jsonify({'message': 'Orçamento excluído com sucesso'})
+
+# =====================================================
+# ENDPOINT DE TRANSFERÊNCIA ENTRE CONTAS
+# =====================================================
+
+@app.route('/api/transfer', methods=['POST'])
+@token_required
+@with_connection_retry(max_retries=3)
+def transfer_between_accounts(current_user):
+    """
+    Endpoint para realizar transferência entre contas.
+    A transferência desconta da conta de origem e adiciona na conta de destino.
+    """
+    data = request.get_json()
+    
+    required_fields = ['from_account_id', 'to_account_id', 'amount']
+    if not data or not all(k in data for k in required_fields):
+        return jsonify({'message': 'Dados incompletos. Forneça: from_account_id, to_account_id e amount'}), 400
+    
+    user_id = str(current_user['_id'])
+    from_account_id = data['from_account_id']
+    to_account_id = data['to_account_id']
+    amount = float(data['amount'])
+    description = data.get('description', 'Transferência entre contas')
+    
+    # Validações
+    if amount <= 0:
+        return jsonify({'message': 'O valor da transferência deve ser maior que zero'}), 400
+    
+    if from_account_id == to_account_id:
+        return jsonify({'message': 'A conta de origem e destino não podem ser iguais'}), 400
+    
+    try:
+        # Buscar contas de origem e destino
+        if db_manager.db is not None:
+            from_account = accounts_collection.find_one({
+                '_id': ObjectId(from_account_id),
+                'user_id': user_id
+            })
+            to_account = accounts_collection.find_one({
+                '_id': ObjectId(to_account_id),
+                'user_id': user_id
+            })
+        else:
+            from_account = next((a for a in memory_storage['accounts']
+                                if a['_id'] == from_account_id and a['user_id'] == user_id), None)
+            to_account = next((a for a in memory_storage['accounts']
+                              if a['_id'] == to_account_id and a['user_id'] == user_id), None)
+        
+        if not from_account:
+            return jsonify({'message': 'Conta de origem não encontrada'}), 404
+        
+        if not to_account:
+            return jsonify({'message': 'Conta de destino não encontrada'}), 404
+        
+        # Verificar se a conta de origem é cartão de crédito
+        if from_account.get('type') == 'cartao':
+            return jsonify({'message': 'Não é possível transferir de um cartão de crédito. Use o cartão para pagar uma despesa.'}), 400
+        
+        # Verificar saldo suficiente na conta de origem
+        current_balance = from_account.get('balance', 0)
+        if current_balance < amount:
+            return jsonify({
+                'message': f'Saldo insuficiente. Saldo atual: R$ {current_balance:.2f}, Valor da transferência: R$ {amount:.2f}'
+            }), 400
+        
+        # Executar a transferência
+        if db_manager.db is not None:
+            # Atualizar conta de origem (diminuir saldo)
+            accounts_collection.update_one(
+                {'_id': ObjectId(from_account_id), 'user_id': user_id},
+                {'$set': {
+                    'balance': current_balance - amount,
+                    'updated_at': datetime.utcnow()
+                }}
+            )
+            
+            # Atualizar conta de destino (aumentar saldo)
+            to_current_balance = to_account.get('balance', 0)
+            accounts_collection.update_one(
+                {'_id': ObjectId(to_account_id), 'user_id': user_id},
+                {'$set': {
+                    'balance': to_current_balance + amount,
+                    'updated_at': datetime.utcnow()
+                }}
+            )
+            
+            # Registrar a transferência no histórico
+            transfer_record = {
+                'user_id': user_id,
+                'from_account_id': from_account_id,
+                'to_account_id': to_account_id,
+                'from_account_name': from_account.get('name'),
+                'to_account_name': to_account.get('name'),
+                'amount': amount,
+                'description': description,
+                'created_at': datetime.utcnow()
+            }
+            transfers_collection.insert_one(transfer_record)
+            
+        else:
+            # Memory storage fallback
+            from_account['balance'] = current_balance - amount
+            from_account['updated_at'] = datetime.utcnow()
+            
+            to_current_balance = to_account.get('balance', 0)
+            to_account['balance'] = to_current_balance + amount
+            to_account['updated_at'] = datetime.utcnow()
+            
+            # Registrar no histórico
+            transfer_record = {
+                '_id': get_next_id(),
+                'user_id': user_id,
+                'from_account_id': from_account_id,
+                'to_account_id': to_account_id,
+                'from_account_name': from_account.get('name'),
+                'to_account_name': to_account.get('name'),
+                'amount': amount,
+                'description': description,
+                'created_at': datetime.utcnow()
+            }
+            memory_storage['transfers'].append(transfer_record)
+        
+        return jsonify({
+            'message': 'Transferência realizada com sucesso!',
+            'transfer': {
+                'from_account': from_account.get('name'),
+                'to_account': to_account.get('name'),
+                'amount': amount,
+                'description': description
+            }
+        }), 200
+        
+    except Exception as e:
+        print(f'Erro ao realizar transferência: {e}')
+        return jsonify({'message': f'Erro ao realizar transferência: {str(e)}'}), 500
+
+
+@app.route('/api/transfers', methods=['GET'])
+@token_required
+@with_connection_retry(max_retries=3)
+def get_transfers(current_user):
+    """Endpoint para obter histórico de transferências"""
+    user_id = str(current_user['_id'])
+    
+    if db_manager.db is not None:
+        transfers = list(transfers_collection.find({'user_id': user_id}).sort('created_at', -1))
+    else:
+        transfers = [t for t in memory_storage['transfers'] if t['user_id'] == user_id]
+        transfers.sort(key=lambda x: x.get('created_at', datetime.min), reverse=True)
+    
+    return jsonify({'transfers': serialize_doc(transfers)})
+
 
 # Accounts Routes
 @app.route('/api/accounts', methods=['GET'])
