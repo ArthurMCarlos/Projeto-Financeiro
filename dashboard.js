@@ -9,7 +9,7 @@ let goals = [];
 let charts = {};
 
 // API Base URL
-const API_BASE = "https://projeto-financeiro-z2th.onrender.com";
+const API_BASE = "https://projeto-financeiro-c8sb.onrender.com";
 
 // =====================================================
 // KEEP-ALIVE MANAGER
@@ -1933,10 +1933,14 @@ function validateTransferAccounts() {
 async function saveTransfer(event) {
     event.preventDefault();
 
+    console.log('Iniciando transferência...');
+
     const fromAccountId = document.getElementById('transferFromAccount').value;
     const toAccountId = document.getElementById('transferToAccount').value;
     const amount = parseFloat(document.getElementById('transferAmount').value);
     const description = document.getElementById('transferDescription').value || 'Transferência entre contas';
+
+    console.log('Dados da transferência:', { fromAccountId, toAccountId, amount, description });
 
     // Validações
     if (!fromAccountId || !toAccountId) {
@@ -1956,6 +1960,7 @@ async function saveTransfer(event) {
 
     // Verificar saldo
     const fromAccount = accounts.find(a => a._id === fromAccountId);
+    console.log('Conta de origem:', fromAccount);
     if (fromAccount && (fromAccount.balance || 0) < amount) {
         showToast(`Saldo insuficiente! Saldo atual: R$ ${formatCurrency(fromAccount.balance || 0)}`, 'error');
         return;
@@ -1968,6 +1973,8 @@ async function saveTransfer(event) {
     submitBtn.textContent = 'Transferindo...';
 
     try {
+        console.log('Enviando requisição para /api/transfer');
+        
         const response = await apiCall('/api/transfer', {
             method: 'POST',
             body: JSON.stringify({
@@ -1977,6 +1984,8 @@ async function saveTransfer(event) {
                 description: description
             })
         });
+
+        console.log('Resposta da API:', response);
 
         closeTransferModal();
 
