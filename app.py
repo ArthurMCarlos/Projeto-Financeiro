@@ -189,7 +189,20 @@ budgets_collection = db.budgets if db is not None else None
 accounts_collection = db.accounts if db is not None else None
 goals_collection = db.goals if db is not None else None
 credit_card_resets_collection = db.credit_card_resets if db is not None else None
-transfers_collection = db.transfers if db is not None else None
+
+# Criar coleção de transfers se não existir
+if db is not None:
+    try:
+        transfers_collection = db.transfers
+        # Verificar se a coleção existe, se não existir criar
+        if 'transfers' not in db.list_collection_names():
+            db.create_collection('transfers')
+            print("✅ Coleção 'transfers' criada com sucesso")
+    except Exception as e:
+        print(f"⚠️ Erro ao acessar coleção transfers: {e}")
+        transfers_collection = None
+else:
+    transfers_collection = None
 
 # In-memory storage for development/fallback
 memory_storage = {
