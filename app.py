@@ -1483,6 +1483,17 @@ def transfer_between_accounts(current_user):
         if from_account.get('type') == 'cartao':
             return jsonify({'message': 'Não é possível transferir de um cartão de crédito. Use o cartão para pagar uma despesa.'}), 400
         
+        # Recalcular saldo da conta de origem antes de verificar
+        # Isso garante que o saldo está atualizado no banco de dados
+        if db_manager.db is not None:
+            # Buscar saldo mais recente do banco
+            latest_from_account = accounts_collection.find_one({
+                '_id': ObjectId(from_account_id),
+                'user_id': user_id
+            })
+            if latest_from_account:
+                from_account = latest_from_account
+        
         # Verificar saldo suficiente na conta de origem
         current_balance = from_account.get('balance', 0)
         if current_balance < amount:
@@ -1492,11 +1503,26 @@ def transfer_between_accounts(current_user):
         
         # Executar a transferência
         if db_manager.db is not None:
+            # Buscar saldos mais recentes do banco
+            latest_from_account = accounts_collection.find_one({
+                '_id': ObjectId(from_account_id),
+                'user_id': user_id
+            })
+            latest_to_account = accounts_collection.find_one({
+                '_id': ObjectId(to_account_id),
+                'user_id': user_id
+            })
+            
+            if latest_from_account and latest_to_account:
+                from_account = latest_from_account
+                to_account = latest_to_account
+            
             # Atualizar conta de origem (diminuir saldo)
+            from_current_balance = from_account.get('balance', 0)
             accounts_collection.update_one(
                 {'_id': ObjectId(from_account_id), 'user_id': user_id},
                 {'$set': {
-                    'balance': current_balance - amount,
+                    'balance': from_current_balance - amount,
                     'updated_at': datetime.utcnow()
                 }}
             )
