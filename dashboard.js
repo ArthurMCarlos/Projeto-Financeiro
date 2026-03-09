@@ -1999,8 +1999,12 @@ async function saveTransfer(event) {
 
         closeTransferModal();
 
-        // Recarregar dados
-        await loadAccounts();
+        // Recarregar dados SEM recalcular os saldos automaticamente
+        // Isso garante que os saldos atualizados pelo banco são usados
+        await loadAccountsWithoutRecalculate();
+        
+        // Atualizar a visualização manualmente com os novos valores
+        displayAccounts();
         updateOverview();
 
         showToast(`Transferência de R$ ${formatCurrency(amount)} realizada com sucesso!`, 'success');
@@ -2012,6 +2016,22 @@ async function saveTransfer(event) {
     } finally {
         submitBtn.disabled = false;
         submitBtn.textContent = originalText;
+    }
+}
+
+// Função para carregar contas sem recalcular saldos automaticamente
+async function loadAccountsWithoutRecalculate() {
+    try {
+        const data = await apiCall('/api/accounts');
+        accounts = data.accounts || [];
+        updateAccountSelects();
+        updateIncomeAccountSelects();
+        updateOverviewAccountSelect();
+        updateAccountSummary();
+        updateOverviewAccountSummary();
+        displayCreditCardAlerts();
+    } catch (error) {
+        console.error('Erro ao carregar contas:', error);
     }
 }
 
