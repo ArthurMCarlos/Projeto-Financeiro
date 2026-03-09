@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="pt-BR">
 
@@ -317,7 +318,6 @@
                             <button onclick="recalculateAllBalances()" class="btn-secondary" title="Recalcular saldos automáticos">
                                 🔄 Recalcular Saldos
                             </button>
-                            <button id="transferBtn" class="btn-primary">↔️ Transferência</button>
                             <button id="addAccountBtn" class="btn-primary">+ Nova Conta</button>
                         </div>
                     </div>
@@ -583,41 +583,6 @@
                 <div class="form-actions">
                     <button type="submit" class="btn-primary">Salvar</button>
                     <button type="button" class="btn-secondary" onclick="closeGoalModal()">Cancelar</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <!-- Transfer Modal -->
-    <div id="transferModal" class="modal">
-        <div class="modal-content">
-            <span class="close">&times;</span>
-            <h2>Transferência entre Contas</h2>
-            <form id="transferForm">
-                <div class="form-group">
-                    <label for="transferFromAccount">Conta de Origem:</label>
-                    <select id="transferFromAccount" required class="input">
-                        <option value="">Selecione a conta de origem</option>
-                    </select>
-                    <small class="form-help">Saldo disponível: <span id="fromAccountBalance">R$ 0,00</span></small>
-                </div>
-                <div class="form-group">
-                    <label for="transferToAccount">Conta de Destino:</label>
-                    <select id="transferToAccount" required class="input">
-                        <option value="">Selecione a conta de destino</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label for="transferAmount">Valor (R$):</label>
-                    <input type="number" id="transferAmount" step="0.01" min="0.01" required class="input" placeholder="Ex: 100.00">
-                </div>
-                <div class="form-group">
-                    <label for="transferDescription">Descrição (opcional):</label>
-                    <input type="text" id="transferDescription" class="input" placeholder="Ex: Transferência para poupança">
-                </div>
-                <div class="form-actions">
-                    <button type="submit" class="btn-primary">Transferir</button>
-                    <button type="button" class="btn-secondary" onclick="closeTransferModal()">Cancelar</button>
                 </div>
             </form>
         </div>
