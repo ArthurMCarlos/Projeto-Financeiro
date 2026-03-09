@@ -1426,12 +1426,60 @@ def delete_budget(current_user, budget_id):
     return jsonify({'message': 'Orçamento excluído com sucesso'})
 
 # =====================================================
+# FUNÇÃO AUXILIAR PARA RECALCULAR SALDO DA CONTA
+# =====================================================
+
+def recalculate_account_balance_for_transfer(user_id, account_id):
+    """Recalcula o saldo de uma conta baseado em receitas e transações"""
+    if not account_id:
+        return 0
+    
+    try:
+        total_income = 0
+        
+        if db_manager.db is not None:
+            # Somar receitas vinculadas a esta conta
+            incomes_cursor = incomes_collection.find({
+                'user_id': user_id,
+                'account_id': account_id
+            })
+            for income in incomes_cursor:
+                total_income += income.get('amount', 0)
+            
+            # Somar transações de receita vinculadas a esta conta
+            transactions_cursor = transactions_collection.find({
+                'user_id': user_id,
+                'account_id': account_id
+            })
+            for transaction in transactions_cursor:
+                total_income += transaction.get('income', 0)
+                total_income -= transaction.get('expense', 0)
+        else:
+            incomes = [i for i in memory_storage['incomes']
+                      if i['user_id'] == user_id and i.get('account_id') == account_id]
+            for income in incomes:
+                total_income += income.get('amount', 0)
+            
+            transactions = [t for t in memory_storage['transactions']
+                           if t['user_id'] == user_id and t.get('account_id') == account_id]
+            for transaction in transactions:
+                total_income += transaction.get('income', 0)
+                total_income -= transaction.get('expense', 0)
+        
+        return total_income
+        
+    except Exception as e:
+        print(f"Erro ao recalcular saldo: {e}")
+        return 0
+
+
+# =====================================================
 # ENDPOINT DE TRANSFERÊNCIA ENTRE CONTAS
 # =====================================================
 
-@app.route('/api/transfer', methods=['POST'])
-@token_required
-@with_connection_retry(max_retries=3)
+@ app.route('/api/transfer', methods=['POST'])
+@ token_required
+@ with_connection_retry(max_retries=3)
 def transfer_between_accounts(current_user):
     """
     Endpoint para realizar transferência entre contas.
@@ -1483,56 +1531,40 @@ def transfer_between_accounts(current_user):
         if from_account.get('type') == 'cartao':
             return jsonify({'message': 'Não é possível transferir de um cartão de crédito. Use o cartão para pagar uma despesa.'}), 400
         
-        # Recalcular saldo da conta de origem antes de verificar
-        # Isso garante que o saldo está atualizado no banco de dados
-        if db_manager.db is not None:
-            # Buscar saldo mais recente do banco
-            latest_from_account = accounts_collection.find_one({
-                '_id': ObjectId(from_account_id),
-                'user_id': user_id
-            })
-            if latest_from_account:
-                from_account = latest_from_account
+        # Recalcular saldo da conta de origem baseado em receitas e transações
+        # Isso garante que o saldo usado é o correto, não o armazenado no banco
+        calculated_balance = recalculate_account_balance_for_transfer(user_id, from_account_id)
         
-        # Verificar saldo suficiente na conta de origem
-        current_balance = from_account.get('balance', 0)
+        print(f"🔄 Saldo calculado para {from_account.get('name')}: R$ {calculated_balance:.2f}")
+        print(f"   Saldo no banco: R$ {from_account.get('balance', 0):.2f}")
+        
+        # Usar o saldo calculado para verificação
+        current_balance = calculated_balance
+        
         if current_balance < amount:
             return jsonify({
-                'message': f'Saldo insuficiente. Saldo atual: R$ {current_balance:.2f}, Valor da transferência: R$ {amount:.2f}'
+                'message': f'Saldo insuficiente. Saldo calculado: R$ {current_balance:.2f}, Valor da transferência: R$ {amount:.2f}'
             }), 400
         
         # Executar a transferência
         if db_manager.db is not None:
-            # Buscar saldos mais recentes do banco
-            latest_from_account = accounts_collection.find_one({
-                '_id': ObjectId(from_account_id),
-                'user_id': user_id
-            })
-            latest_to_account = accounts_collection.find_one({
-                '_id': ObjectId(to_account_id),
-                'user_id': user_id
-            })
-            
-            if latest_from_account and latest_to_account:
-                from_account = latest_from_account
-                to_account = latest_to_account
-            
             # Atualizar conta de origem (diminuir saldo)
-            from_current_balance = from_account.get('balance', 0)
             accounts_collection.update_one(
                 {'_id': ObjectId(from_account_id), 'user_id': user_id},
                 {'$set': {
-                    'balance': from_current_balance - amount,
+                    'balance': current_balance - amount,
                     'updated_at': datetime.utcnow()
                 }}
             )
             
+            # Recalcular saldo da conta de destino
+            to_calculated_balance = recalculate_account_balance_for_transfer(user_id, to_account_id)
+            
             # Atualizar conta de destino (aumentar saldo)
-            to_current_balance = to_account.get('balance', 0)
             accounts_collection.update_one(
                 {'_id': ObjectId(to_account_id), 'user_id': user_id},
                 {'$set': {
-                    'balance': to_current_balance + amount,
+                    'balance': to_calculated_balance + amount,
                     'updated_at': datetime.utcnow()
                 }}
             )
