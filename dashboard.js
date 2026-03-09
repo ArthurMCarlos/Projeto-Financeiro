@@ -9,7 +9,7 @@ let goals = [];
 let charts = {};
 
 // API Base URL
-const API_BASE = "https://projeto-financeiro-z2th.onrender.com";
+const API_BASE = "https://projeto-financeiro-c8sb.onrender.com";
 
 // =====================================================
 // KEEP-ALIVE MANAGER
@@ -380,12 +380,6 @@ function initializeEventListeners() {
     document.getElementById('addAccountBtn').addEventListener('click', () => openAccountModal());
     document.getElementById('accountForm').addEventListener('submit', saveAccount);
 
-    // Transfer events
-    document.getElementById('transferBtn').addEventListener('click', () => openTransferModal());
-    document.getElementById('transferForm').addEventListener('submit', saveTransfer);
-    document.getElementById('transferFromAccount').addEventListener('change', updateFromAccountBalance);
-    document.getElementById('transferToAccount').addEventListener('change', validateTransferAccounts);
-
     // Goal events
     document.getElementById('addGoalBtn').addEventListener('click', () => openGoalModal());
     document.getElementById('goalForm').addEventListener('submit', saveGoal);
@@ -640,15 +634,15 @@ async function loadAccounts() {
     }
 }
 
-// Função CORRIGIDA para atualizar saldos - usa o saldo do servidor
+// Função para calcular e atualizar saldos automáticos das contas
 function updateAccountBalances() {
     accounts.forEach(account => {
         if (account._id) {
-            // Para cartões de crédito, o saldo é gerenciado pelo backend
+            // Para cartões de crédito, o saldo é gerenciado pelo backend - NÃO recalcular!
             if (account.type === 'cartao') {
-                console.log(`ℹ️ Usando saldo do servidor para cartão: ${account.name}`);
+                console.log(`ℹ️ Pulando recalculo para cartão de crédito: ${account.name}`);
                 
-                // Atualizar visualmente apenas com o valor do servidor
+                // Atualizar visualmente apenas para garantir consistência
                 const balanceElement = document.querySelector(`[data-account-id="${account._id}"] .account-balance`);
                 if (balanceElement) {
                     const creditLimit = account.credit_limit || 0;
@@ -658,20 +652,31 @@ function updateAccountBalances() {
                 return;
             }
 
-            // CORREÇÃO PRINCIPAL: Usa o saldo que veio do servidor (account.balance)
-            // NÃO recalcula mais a partir das transações
-            const currentBalance = account.balance;
+            // Busca receitas vinculadas a esta conta
+            const accountIncomes = incomes.filter(income => income.account_id === account._id);
+            const totalIncomes = accountIncomes.reduce((sum, income) => sum + (parseFloat(income.amount) || 0), 0);
 
-            // Atualiza visualmente o saldo na interface usando o valor do servidor
+            // Busca transações vinculadas a esta conta
+            const accountTransactions = transactions.filter(transaction => transaction.account_id === account._id);
+            const totalTransactionIncomes = accountTransactions.reduce((sum, transaction) => sum + (parseFloat(transaction.income) || 0), 0);
+            const totalTransactionExpenses = accountTransactions.reduce((sum, transaction) => sum + (parseFloat(transaction.expense) || 0), 0);
+
+            // Calcula o saldo total
+            const calculatedBalance = totalIncomes + totalTransactionIncomes - totalTransactionExpenses;
+
+            // ATUALIZA o objeto account para que o saldo total seja calculado corretamente
+            account.balance = calculatedBalance;
+
+            // Atualiza visualmente o saldo na interface
             const balanceElement = document.querySelector(`[data-account-id="${account._id}"] .account-balance`);
             if (balanceElement) {
-                balanceElement.textContent = `R$ ${formatCurrency(currentBalance)}`;
+                balanceElement.textContent = `R$ ${formatCurrency(calculatedBalance)}`;
 
                 // Adiciona classes CSS para cores baseadas no saldo
                 balanceElement.classList.remove('positive', 'negative', 'zero');
-                if (currentBalance > 0) {
+                if (calculatedBalance > 0) {
                     balanceElement.classList.add('positive');
-                } else if (currentBalance < 0) {
+                } else if (calculatedBalance < 0) {
                     balanceElement.classList.add('negative');
                 } else {
                     balanceElement.classList.add('zero');
@@ -680,9 +685,8 @@ function updateAccountBalances() {
         }
     });
 
-    // Atualizar o saldo total na overview
+    // Atualizar o saldo total na overview após recalcular todos os saldos
     updateTotalBalanceInOverview();
-    console.log('Saldos das contas atualizados visualmente com base nos dados do servidor!');
 }
 
 // Função para recalcular todos os saldos das contas no backend
@@ -1854,174 +1858,6 @@ async function deleteAccount(accountId) {
     } catch (error) {
         console.error('Erro ao excluir conta:', error);
         showNotification('Erro ao excluir conta', 'error');
-    }
-}
-
-// =====================================================
-// TRANSFER FUNCTIONS
-// =====================================================
-
-function openTransferModal() {
-    const modal = document.getElementById('transferModal');
-    const form = document.getElementById('transferForm');
-
-    form.reset();
-
-    // Popular selects de contas (excluindo cartões de crédito como origem)
-    const fromSelect = document.getElementById('transferFromAccount');
-    const toSelect = document.getElementById('transferToAccount');
-
-    fromSelect.innerHTML = '<option value="">Selecione a conta de origem</option>';
-    toSelect.innerHTML = '<option value="">Selecione a conta de destino</option>';
-
-    accounts.forEach(account => {
-        // Para conta de origem, não permite cartão de crédito
-        if (account.type !== 'cartao') {
-            const optionFrom = document.createElement('option');
-            optionFrom.value = account._id;
-            optionFrom.textContent = `${account.name} (R$ ${formatCurrency(account.balance || 0)})`;
-            optionFrom.dataset.balance = account.balance || 0;
-            fromSelect.appendChild(optionFrom);
-        }
-
-        // Para conta de destino, permite qualquer tipo
-        const optionTo = document.createElement('option');
-        optionTo.value = account._id;
-        optionTo.textContent = `${account.name} (R$ ${formatCurrency(account.balance || 0)})`;
-        optionTo.dataset.balance = account.balance || 0;
-        toSelect.appendChild(optionTo);
-    });
-
-    document.getElementById('fromAccountBalance').textContent = 'R$ 0,00';
-
-    modal.style.display = 'block';
-}
-
-function closeTransferModal() {
-    document.getElementById('transferModal').style.display = 'none';
-}
-
-function updateFromAccountBalance() {
-    const fromSelect = document.getElementById('transferFromAccount');
-    const selectedOption = fromSelect.options[fromSelect.selectedIndex];
-    const balance = selectedOption.dataset.balance || 0;
-
-    document.getElementById('fromAccountBalance').textContent = `R$ ${formatCurrency(balance)}`;
-}
-
-function validateTransferAccounts() {
-    const fromSelect = document.getElementById('transferFromAccount');
-    const toSelect = document.getElementById('transferToAccount');
-
-    // Validar que as contas são diferentes
-    if (fromSelect.value && toSelect.value && fromSelect.value === toSelect.value) {
-        showToast('A conta de origem e destino não podem ser iguais!', 'warning');
-        toSelect.value = '';
-    }
-}
-
-async function saveTransfer(event) {
-    event.preventDefault();
-
-    console.log('Iniciando transferência...');
-
-    const fromAccountId = document.getElementById('transferFromAccount').value;
-    const toAccountId = document.getElementById('transferToAccount').value;
-    const amount = parseFloat(document.getElementById('transferAmount').value);
-    const description = document.getElementById('transferDescription').value || 'Transferência entre contas';
-
-    console.log('Dados da transferência:', { fromAccountId, toAccountId, amount, description });
-
-    // Validações
-    if (!fromAccountId || !toAccountId) {
-        showToast('Selecione ambas as contas!', 'error');
-        return;
-    }
-
-    if (fromAccountId === toAccountId) {
-        showToast('A conta de origem e destino não podem ser iguais!', 'error');
-        return;
-    }
-
-    if (amount <= 0) {
-        showToast('O valor deve ser maior que zero!', 'error');
-        return;
-    }
-
-    // Verificar saldo
-    const fromAccount = accounts.find(a => a._id === fromAccountId);
-    console.log('Conta de origem:', fromAccount);
-    if (fromAccount && (fromAccount.balance || 0) < amount) {
-        showToast(`Saldo insuficiente! Saldo atual: R$ ${formatCurrency(fromAccount.balance || 0)}`, 'error');
-        return;
-    }
-
-    // Mostrar loading
-    const submitBtn = event.target.querySelector('button[type="submit"]');
-    const originalText = submitBtn.textContent;
-    submitBtn.disabled = true;
-    submitBtn.textContent = 'Transferindo...';
-
-    try {
-        console.log('Enviando requisição para /api/transfer');
-        
-        const response = await apiCall('/api/transfer', {
-            method: 'POST',
-            body: JSON.stringify({
-                from_account_id: fromAccountId,
-                to_account_id: toAccountId,
-                amount: amount,
-                description: description
-            })
-        });
-
-        console.log('Resposta da API:', response);
-        console.log('Tipo da resposta:', typeof response);
-        console.log('Keys da resposta:', response ? Object.keys(response) : 'null');
-
-        if (response && response.message) {
-            console.log('Mensagem:', response.message);
-        }
-        
-        if (response && response.transfer) {
-            console.log('Transfer details:', response.transfer);
-        }
-
-        closeTransferModal();
-
-        // Recarregar dados SEM recalcular os saldos automaticamente
-        // Isso garante que os saldos atualizados pelo banco são usados
-        await loadAccountsWithoutRecalculate();
-        
-        // Atualizar a visualização manualmente com os novos valores
-        displayAccounts();
-        updateOverview();
-
-        showToast(`Transferência de R$ ${formatCurrency(amount)} realizada com sucesso!`, 'success');
-    } catch (error) {
-        console.error('Erro ao transferir:', error);
-        console.error('Error message:', error.message);
-        console.error('Error stack:', error.stack);
-        showToast(error.message || 'Erro ao realizar transferência', 'error');
-    } finally {
-        submitBtn.disabled = false;
-        submitBtn.textContent = originalText;
-    }
-}
-
-// Função para carregar contas sem recalcular saldos automaticamente
-async function loadAccountsWithoutRecalculate() {
-    try {
-        const data = await apiCall('/api/accounts');
-        accounts = data.accounts || [];
-        updateAccountSelects();
-        updateIncomeAccountSelects();
-        updateOverviewAccountSelect();
-        updateAccountSummary();
-        updateOverviewAccountSummary();
-        displayCreditCardAlerts();
-    } catch (error) {
-        console.error('Erro ao carregar contas:', error);
     }
 }
 
