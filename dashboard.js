@@ -1986,6 +1986,16 @@ async function saveTransfer(event) {
         });
 
         console.log('Resposta da API:', response);
+        console.log('Tipo da resposta:', typeof response);
+        console.log('Keys da resposta:', response ? Object.keys(response) : 'null');
+
+        if (response && response.message) {
+            console.log('Mensagem:', response.message);
+        }
+        
+        if (response && response.transfer) {
+            console.log('Transfer details:', response.transfer);
+        }
 
         closeTransferModal();
 
@@ -1996,6 +2006,8 @@ async function saveTransfer(event) {
         showToast(`Transferência de R$ ${formatCurrency(amount)} realizada com sucesso!`, 'success');
     } catch (error) {
         console.error('Erro ao transferir:', error);
+        console.error('Error message:', error.message);
+        console.error('Error stack:', error.stack);
         showToast(error.message || 'Erro ao realizar transferência', 'error');
     } finally {
         submitBtn.disabled = false;
@@ -2661,4 +2673,3 @@ function logout() {
     localStorage.removeItem('user');
     window.location.href = '/login.html';
 }
-
