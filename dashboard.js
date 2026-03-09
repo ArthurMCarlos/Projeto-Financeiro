@@ -9,7 +9,7 @@ let goals = [];
 let charts = {};
 
 // API Base URL
-const API_BASE = "https://projeto-financeiro-c8sb.onrender.com";
+const API_BASE = "https://projeto-financeiro-z2th.onrender.com";
 
 // =====================================================
 // KEEP-ALIVE MANAGER
@@ -1733,3 +1733,4 @@ function toggleSection(sectionId) {
         section.style.display = section.style.display === 'none' ? 'block' : 'none';
     }
 }
+
