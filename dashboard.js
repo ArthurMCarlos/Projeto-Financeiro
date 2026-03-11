@@ -2626,11 +2626,25 @@ async function submitTransfer(e) {
             body: JSON.stringify({ from_account_id: fromId, to_account_id: toId, amount, date, description })
         });
 
-        showNotification(result.message || 'Transferência realizada!', 'success');
-        closeTransferModal();
-        await loadAccounts();
+        // Atualizar saldos diretamente no array local antes do re-fetch (evita delay visual)
+        if (result.new_from_balance !== undefined && result.new_from_balance !== null) {
+            const fromAcc = accounts.find(a => a._id === result.from_account_id);
+            if (fromAcc) fromAcc.balance = result.new_from_balance;
+        }
+        if (result.new_to_balance !== undefined && result.new_to_balance !== null) {
+            const toAcc = accounts.find(a => a._id === result.to_account_id);
+            if (toAcc) toAcc.balance = result.new_to_balance;
+        }
+
+        // Atualizar a tela imediatamente com os dados locais
         displayAccounts();
         updateAccountSelects();
+
+        showNotification(result.message || 'Transferência realizada!', 'success');
+        closeTransferModal();
+
+        // Re-fetch em background para garantir sincronização
+        loadAccounts();
     } catch (error) {
         showNotification(error.message || 'Erro ao realizar transferência.', 'error');
     }
@@ -2681,11 +2695,12 @@ async function deleteTransfer(transferId) {
     try {
         const result = await apiCall(`/api/transfers/${transferId}`, { method: 'DELETE' });
         showNotification(result.message || 'Transferência estornada!', 'success');
-        await loadTransfers();
+        // Re-fetch completo após estorno para garantir saldos corretos
         await loadAccounts();
         displayAccounts();
         updateAccountSelects();
-        openTransferHistoryModal();
+        // Reabrir o histórico já atualizado
+        await openTransferHistoryModal();
     } catch (error) {
         showNotification(error.message || 'Erro ao estornar transferência.', 'error');
     }
