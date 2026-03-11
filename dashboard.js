@@ -486,7 +486,8 @@ async function loadAllData() {
             loadIncomes(),
             loadBudgets(),
             loadAccounts(),
-            loadGoals()
+            loadGoals(),
+            loadTransfers()
         ]);
 
         // FORÇAR ATUALIZAÇÃO DE TODAS AS LISTAS APÓS CARREGAR TODOS OS DADOS
@@ -621,11 +622,12 @@ async function loadAccounts() {
     try {
         const data = await apiCall('/api/accounts');
         accounts = data.accounts || [];
+        // O saldo retornado pelo backend já é o correto (inclui receitas, despesas e transferências)
+        // NÃO recalcular no frontend para evitar sobrescrever valores corretos
         updateAccountSelects();
         updateIncomeAccountSelects(); // Popular selects específicos de receitas
         updateOverviewAccountSelect(); // Popular select da overview
         displayAccounts();
-        updateAccountBalances(); // Atualiza o cálculo de saldos automático
         updateAccountSummary(); // Atualizar resumo se houver conta selecionada
         updateOverviewAccountSummary(); // Atualizar resumo da overview
         displayCreditCardAlerts(); // Atualizar alertas de cartões
@@ -641,13 +643,9 @@ function updateAccountBalances() {
             // Para cartões de crédito, o saldo é gerenciado pelo backend - NÃO recalcular!
             if (account.type === 'cartao') {
                 console.log(`ℹ️ Pulando recalculo para cartão de crédito: ${account.name}`);
-                
-                // Atualizar visualmente apenas para garantir consistência
                 const balanceElement = document.querySelector(`[data-account-id="${account._id}"] .account-balance`);
                 if (balanceElement) {
-                    const creditLimit = account.credit_limit || 0;
-                    const balance = account.balance || 0;
-                    balanceElement.textContent = `R$ ${formatCurrency(balance)}`;
+                    balanceElement.textContent = `R$ ${formatCurrency(account.balance || 0)}`;
                 }
                 return;
             }
@@ -658,11 +656,20 @@ function updateAccountBalances() {
 
             // Busca transações vinculadas a esta conta
             const accountTransactions = transactions.filter(transaction => transaction.account_id === account._id);
-            const totalTransactionIncomes = accountTransactions.reduce((sum, transaction) => sum + (parseFloat(transaction.income) || 0), 0);
-            const totalTransactionExpenses = accountTransactions.reduce((sum, transaction) => sum + (parseFloat(transaction.expense) || 0), 0);
+            const totalTransactionIncomes = accountTransactions.reduce((sum, t) => sum + (parseFloat(t.income) || 0), 0);
+            const totalTransactionExpenses = accountTransactions.reduce((sum, t) => sum + (parseFloat(t.expense) || 0), 0);
 
-            // Calcula o saldo total
-            const calculatedBalance = totalIncomes + totalTransactionIncomes - totalTransactionExpenses;
+            // Inclui transferências no cálculo do saldo
+            // Entradas: transferências recebidas (to_account_id === account._id)
+            const transfersIn = transfers.filter(t => t.to_account_id === account._id);
+            const totalTransfersIn = transfersIn.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
+
+            // Saídas: transferências enviadas (from_account_id === account._id)
+            const transfersOut = transfers.filter(t => t.from_account_id === account._id);
+            const totalTransfersOut = transfersOut.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
+
+            // Calcula o saldo total incluindo transferências
+            const calculatedBalance = totalIncomes + totalTransactionIncomes - totalTransactionExpenses + totalTransfersIn - totalTransfersOut;
 
             // ATUALIZA o objeto account para que o saldo total seja calculado corretamente
             account.balance = calculatedBalance;
@@ -672,7 +679,6 @@ function updateAccountBalances() {
             if (balanceElement) {
                 balanceElement.textContent = `R$ ${formatCurrency(calculatedBalance)}`;
 
-                // Adiciona classes CSS para cores baseadas no saldo
                 balanceElement.classList.remove('positive', 'negative', 'zero');
                 if (calculatedBalance > 0) {
                     balanceElement.classList.add('positive');
@@ -692,12 +698,8 @@ function updateAccountBalances() {
 // Função para recalcular todos os saldos das contas no backend
 async function recalculateAllBalances() {
     try {
-        // Chama o endpoint para recalcular saldos (precisa ser implementado no backend)
-        // Por enquanto, vamos usar a função updateAccountBalances()
-        updateAccountBalances();
-
-        // Opcionalmente, poderia adicionar uma chamada para o backend:
-        // await apiCall('/api/accounts/recalculate', { method: 'POST' });
+        // Buscar dados atualizados do servidor antes de exibir
+        await Promise.all([loadAccounts(), loadTransfers()]);
 
         console.log('Saldos das contas atualizados automaticamente!');
         showNotification('Saldos das contas atualizados!', 'success');
@@ -1131,7 +1133,6 @@ async function saveIncome(event) {
         closeIncomeModal();
         await loadIncomes();
         await loadAccounts(); // Recarrega as contas para atualizar os saldos
-        recalculateAllBalances(); // Recalcula todos os saldos automaticamente
         updateOverview();
         showNotification('Receita salva com sucesso!', 'success');
     } catch (error) {
@@ -1159,7 +1160,6 @@ async function deleteIncome(incomeId) {
 
         await loadIncomes();
         await loadAccounts(); // Recarrega as contas para atualizar os saldos
-        recalculateAllBalances(); // Recalcula todos os saldos automaticamente
         updateOverview();
         showNotification('Receita excluída com sucesso!', 'success');
     } catch (error) {
@@ -1371,7 +1371,6 @@ async function deleteExpense(expenseId) {
 
         await loadTransactions();
         await loadAccounts(); // Recarrega as contas para atualizar os saldos
-        recalculateAllBalances(); // Recalcula todos os saldos automaticamente
         updateOverview();
         showNotification('Despesa excluída com sucesso!', 'success');
     } catch (error) {
@@ -1488,7 +1487,8 @@ async function refreshAllData() {
             loadIncomes(),
             loadBudgets(),
             loadAccounts(),
-            loadGoals()
+            loadGoals(),
+            loadTransfers()
         ]);
 
         // Usar a função centralizada de atualização
