@@ -1979,12 +1979,32 @@ def create_transfer(current_user):
 
     print(f"💸 Transferência: R$ {amount:.2f} de '{from_account.get('name')}' para '{to_account.get('name')}'")
 
+    # Buscar saldos atualizados para retornar ao frontend
+    try:
+        if db_manager.db is not None:
+            updated_from = accounts_collection.find_one({'_id': ObjectId(from_id), 'user_id': user_id})
+            updated_to = accounts_collection.find_one({'_id': ObjectId(to_id), 'user_id': user_id})
+            new_from_balance = updated_from.get('balance', 0) if updated_from else None
+            new_to_balance = updated_to.get('balance', 0) if updated_to else None
+        else:
+            updated_from = next((a for a in memory_storage['accounts'] if a['_id'] == from_id), None)
+            updated_to = next((a for a in memory_storage['accounts'] if a['_id'] == to_id), None)
+            new_from_balance = updated_from.get('balance', 0) if updated_from else None
+            new_to_balance = updated_to.get('balance', 0) if updated_to else None
+    except Exception:
+        new_from_balance = None
+        new_to_balance = None
+
     return jsonify({
         'message': f'Transferência de R$ {amount:.2f} realizada com sucesso!',
         'transfer_id': transfer_id,
         'from_account': from_account.get('name'),
+        'from_account_id': from_id,
         'to_account': to_account.get('name'),
-        'amount': amount
+        'to_account_id': to_id,
+        'amount': amount,
+        'new_from_balance': new_from_balance,
+        'new_to_balance': new_to_balance
     }), 201
 
 
