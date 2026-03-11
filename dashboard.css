@@ -1759,69 +1759,141 @@ tr:last-child td {
 .gap-2 { gap: 1rem; }
 
 /* =====================================================
-   TRANSFER MODAL STYLES
+   TRANSFERÊNCIA ENTRE CONTAS
    ===================================================== */
 
+/* Botão de sucesso/verde para a ação de transferência */
+.btn-success {
+    background: linear-gradient(135deg, #10b981, #059669);
+    color: white;
+    border: none;
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.875rem;
+    font-weight: 600;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.btn-success:hover {
+    background: linear-gradient(135deg, #059669, #047857);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+}
+
+/* Info de saldo no modal de transferência */
 .transfer-balance-info {
-    background: var(--bg-secondary);
-    border: 2px solid var(--border);
-    border-radius: 10px;
-    padding: 1rem;
-    margin-bottom: 1rem;
-    transition: border-color 0.3s ease, background 0.3s ease;
+    background: var(--bg-secondary, #f1f5f9);
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin: 0.5rem 0 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    color: var(--text-primary, #1e293b);
+    border-left: 4px solid #10b981;
 }
 
-.transfer-balance-info.positive {
-    border-color: var(--success);
-    background: rgba(16, 185, 129, 0.05);
+.transfer-balance-label strong {
+    color: #10b981;
+    font-size: 1rem;
 }
 
-.transfer-balance-info.negative {
-    border-color: var(--danger);
-    background: rgba(239, 68, 68, 0.05);
+/* Lista de histórico de transferências */
+.transfer-history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    max-height: 500px;
+    overflow-y: auto;
+    padding-right: 0.25rem;
 }
 
-.balance-display {
+.transfer-history-item {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    background: var(--bg-secondary, #f8fafc);
+    border: 1px solid var(--border-color, #e2e8f0);
+    border-radius: 10px;
+    padding: 1rem 1.25rem;
+    gap: 1rem;
+    transition: box-shadow 0.2s;
 }
 
-.balance-display .label {
-    font-size: 0.875rem;
-    color: var(--text-secondary);
-    font-weight: 500;
+.transfer-history-item:hover {
+    box-shadow: 0 2px 10px rgba(0,0,0,0.07);
 }
 
-.balance-display .value {
-    font-size: 1.125rem;
+.transfer-history-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    flex: 1;
+    min-width: 0;
+}
+
+.transfer-history-accounts {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 600;
+    font-size: 0.95rem;
+    flex-wrap: wrap;
+}
+
+.transfer-from {
+    color: #ef4444;
+}
+
+.transfer-to {
+    color: #10b981;
+}
+
+.transfer-arrow {
+    color: var(--text-secondary, #64748b);
+    font-size: 1.1rem;
+}
+
+.transfer-history-details {
+    display: flex;
+    gap: 1rem;
+    font-size: 0.8rem;
+    color: var(--text-secondary, #64748b);
+    flex-wrap: wrap;
+}
+
+.transfer-history-right {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.4rem;
+    flex-shrink: 0;
+}
+
+.transfer-amount {
+    font-size: 1.05rem;
     font-weight: 700;
+    color: var(--text-primary, #1e293b);
+    white-space: nowrap;
 }
 
-.transfer-balance-info.positive .balance-display .value {
-    color: var(--success);
-}
-
-.transfer-balance-info.negative .balance-display .value {
-    color: var(--danger);
-}
-
-/* Modal larger for transfer */
-#transferModal .modal-content {
-    max-width: 550px;
-}
-
-/* Responsive adjustments for transfer modal */
-@media (max-width: 768px) {
-    #transferModal .modal-content {
-        margin: 5% auto;
-        width: 95%;
-        padding: 1.25rem;
+/* Responsividade */
+@media (max-width: 600px) {
+    .transfer-history-item {
+        flex-direction: column;
+        align-items: flex-start;
     }
 
-    .balance-display {
-        flex-direction: column;
-        gap: 0.5rem;
-        text-align: center;
+    .transfer-history-right {
+        align-items: flex-start;
+        flex-direction: row;
+        width: 100%;
+        justify-content: space-between;
     }
 }
