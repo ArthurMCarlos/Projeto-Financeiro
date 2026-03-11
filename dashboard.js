@@ -2520,3 +2520,181 @@ function logout() {
     window.location.href = '/login.html';
 }
 
+// =====================================================
+// TRANSFERÊNCIA ENTRE CONTAS
+// =====================================================
+
+let transfers = [];
+
+async function loadTransfers() {
+    try {
+        const data = await apiCall('/api/transfers');
+        transfers = data.transfers || [];
+    } catch (error) {
+        console.error('Erro ao carregar transferências:', error);
+        transfers = [];
+    }
+}
+
+function openTransferModal() {
+    const modal = document.getElementById('transferModal');
+    const fromSelect = document.getElementById('transferFrom');
+    const toSelect = document.getElementById('transferTo');
+    const dateInput = document.getElementById('transferDate');
+    const descInput = document.getElementById('transferDescription');
+    const amountInput = document.getElementById('transferAmount');
+    const balanceInfo = document.getElementById('transferBalanceInfo');
+
+    // Limpar campos
+    fromSelect.innerHTML = '<option value="">Selecione a conta de origem</option>';
+    toSelect.innerHTML = '<option value="">Selecione a conta de destino</option>';
+    amountInput.value = '';
+    descInput.value = '';
+    balanceInfo.style.display = 'none';
+
+    // Data padrão: mês atual
+    const now = new Date();
+    dateInput.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+    // Preencher selects com contas disponíveis
+    const typeLabels = {
+        'corrente': 'Conta Corrente',
+        'poupanca': 'Poupança',
+        'cartao': 'Cartão de Crédito',
+        'investimento': 'Investimento'
+    };
+
+    accounts.forEach(account => {
+        const label = `${account.name} (${typeLabels[account.type] || account.type}) — R$ ${formatCurrency(account.balance || 0)}`;
+        const optFrom = new Option(label, account._id);
+        const optTo = new Option(label, account._id);
+        fromSelect.appendChild(optFrom);
+        toSelect.appendChild(optTo);
+    });
+
+    // Mostrar saldo ao selecionar conta origem
+    fromSelect.onchange = function () {
+        const selected = accounts.find(a => a._id === this.value);
+        if (selected) {
+            balanceInfo.style.display = 'block';
+            const isCreditCard = selected.type === 'cartao';
+            balanceInfo.innerHTML = `
+                <span class="transfer-balance-label">
+                    ${isCreditCard ? '💳 Limite disponível:' : '💰 Saldo disponível:'}
+                    <strong>R$ ${formatCurrency(selected.balance || 0)}</strong>
+                </span>
+            `;
+        } else {
+            balanceInfo.style.display = 'none';
+        }
+    };
+
+    modal.style.display = 'flex';
+}
+
+function closeTransferModal() {
+    document.getElementById('transferModal').style.display = 'none';
+    document.getElementById('transferForm').reset();
+    document.getElementById('transferBalanceInfo').style.display = 'none';
+}
+
+async function submitTransfer(e) {
+    e.preventDefault();
+
+    const fromId = document.getElementById('transferFrom').value;
+    const toId = document.getElementById('transferTo').value;
+    const amount = parseFloat(document.getElementById('transferAmount').value);
+    const date = document.getElementById('transferDate').value;
+    const description = document.getElementById('transferDescription').value || 'Transferência entre contas';
+
+    if (!fromId || !toId) {
+        showNotification('Selecione as contas de origem e destino.', 'error');
+        return;
+    }
+    if (fromId === toId) {
+        showNotification('As contas de origem e destino não podem ser iguais.', 'error');
+        return;
+    }
+    if (!amount || amount <= 0) {
+        showNotification('Informe um valor válido para a transferência.', 'error');
+        return;
+    }
+
+    try {
+        const result = await apiCall('/api/transfers', {
+            method: 'POST',
+            body: JSON.stringify({ from_account_id: fromId, to_account_id: toId, amount, date, description })
+        });
+
+        showNotification(result.message || 'Transferência realizada!', 'success');
+        closeTransferModal();
+        await loadAccounts();
+        displayAccounts();
+        updateAccountSelects();
+    } catch (error) {
+        showNotification(error.message || 'Erro ao realizar transferência.', 'error');
+    }
+}
+
+async function openTransferHistoryModal() {
+    await loadTransfers();
+
+    const modal = document.getElementById('transferHistoryModal');
+    const list = document.getElementById('transferHistoryList');
+
+    if (transfers.length === 0) {
+        list.innerHTML = '<p style="text-align:center; color: var(--text-secondary); padding: 2rem;">Nenhuma transferência registrada.</p>';
+    } else {
+        list.innerHTML = transfers.map(t => `
+            <div class="transfer-history-item">
+                <div class="transfer-history-info">
+                    <div class="transfer-history-accounts">
+                        <span class="transfer-from">${t.from_account_name || 'Conta'}</span>
+                        <span class="transfer-arrow">→</span>
+                        <span class="transfer-to">${t.to_account_name || 'Conta'}</span>
+                    </div>
+                    <div class="transfer-history-details">
+                        <span class="transfer-description">${t.description || 'Transferência'}</span>
+                        <span class="transfer-date">${t.date || ''}</span>
+                    </div>
+                </div>
+                <div class="transfer-history-right">
+                    <span class="transfer-amount">R$ ${formatCurrency(t.amount)}</span>
+                    <button onclick="deleteTransfer('${t._id}')" class="btn-danger" title="Estornar transferência" style="padding: 0.3rem 0.6rem; font-size: 0.75rem;">
+                        ↩ Estornar
+                    </button>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    modal.style.display = 'flex';
+}
+
+function closeTransferHistoryModal() {
+    document.getElementById('transferHistoryModal').style.display = 'none';
+}
+
+async function deleteTransfer(transferId) {
+    if (!confirm('Deseja estornar esta transferência? Os saldos das contas serão revertidos.')) return;
+
+    try {
+        const result = await apiCall(`/api/transfers/${transferId}`, { method: 'DELETE' });
+        showNotification(result.message || 'Transferência estornada!', 'success');
+        await loadTransfers();
+        await loadAccounts();
+        displayAccounts();
+        updateAccountSelects();
+        openTransferHistoryModal();
+    } catch (error) {
+        showNotification(error.message || 'Erro ao estornar transferência.', 'error');
+    }
+}
+
+// Registrar event listener do form de transferência
+document.addEventListener('DOMContentLoaded', function () {
+    const transferForm = document.getElementById('transferForm');
+    if (transferForm) {
+        transferForm.addEventListener('submit', submitTransfer);
+    }
+});
