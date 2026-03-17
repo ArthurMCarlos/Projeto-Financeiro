@@ -42,7 +42,7 @@ async function initializeApp() {
     // Initialize charts
     initializeCharts();
 
-    // Initialize goals (will be called from goals.js)
+    // Inicializa as metas (será chamado a partir de goals.js)
     if (typeof initializeGoals === 'function') {
         await initializeGoals();
     }
@@ -64,7 +64,7 @@ function initializeTheme() {
         localStorage.setItem('theme', newTheme);
         themeToggle.textContent = newTheme === 'dark' ? '☀️' : '🌙';
         
-        // Update charts theme if function exists
+        // Atualiza o tema dos gráficos se a função existir
         if (typeof updateChartsTheme === 'function') {
             updateChartsTheme();
         }
@@ -239,7 +239,7 @@ function updateCategorySelects() {
         categoryFilter.add(option2);
     });
 
-    // Update goal category select if function exists
+    // Atualiza o select de categoria das metas se a função existir
     if (typeof updateGoalCategorySelect === 'function') {
         updateGoalCategorySelect();
     }
@@ -307,7 +307,7 @@ async function loadTransactions() {
         updateStats();
         updateCharts();
         
-        // Update goal progress from transactions if function exists
+        // Atualiza o progresso das metas pelas transações se a função existir
         if (typeof updateGoalProgressFromTransactions === 'function') {
             updateGoalProgressFromTransactions();
         }
@@ -510,9 +510,9 @@ function updateStats(filteredTransactions = transactions) {
     balanceElement.style.color = totalBalance >= 0 ? 'var(--success)' : 'var(--danger)';
 }
 
-// Reports Functions
+// Funções de Relatórios
 function initializeReports() {
-    // Set default date range to current year
+    // Define o intervalo de datas padrão para o ano atual
     const now = new Date();
     const currentYear = now.getFullYear();
     const startMonth = `${currentYear}-01`;
