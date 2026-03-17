@@ -269,7 +269,7 @@ function updateChartsTheme() {
         }
     };
 
-    // Update all charts with new theme
+    // Atualiza todos os gráficos com o novo tema
     if (categoryChart) {
         categoryChart.options = { ...categoryChart.options, ...chartOptions };
         categoryChart.update();
