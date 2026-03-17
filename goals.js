@@ -215,10 +215,10 @@ function createGoalCard(goal, isPreview = false) {
 // Helper Functions
 function calculateProgress(goal) {
     if (goal.goal_type === 'expense_limit') {
-        // For expense limits, progress is how much of the limit has been used
+        // Para limite de gastos, o progresso é o quanto do limite foi utilizado
         return Math.min((goal.current_amount / goal.target_amount) * 100, 100);
     } else {
-        // For savings and income goals, progress is how much has been achieved
+        // Para metas de economia e receita, o progresso é o quanto foi alcançado
         return Math.min((goal.current_amount / goal.target_amount) * 100, 100);
     }
 }
@@ -260,7 +260,7 @@ function openGoalModal() {
     document.getElementById('goalId').value = '';
     document.getElementById('goalModalTitle').textContent = 'Nova Meta';
     
-    // Set minimum date to today
+    // Define a data mínima como hoje
     const today = new Date().toISOString().split('T')[0];
     document.getElementById('goalTargetDate').min = today;
     
@@ -324,7 +324,7 @@ function handleGoalTypeChange() {
     const goalType = document.getElementById('goalType').value;
     const categoryGroup = document.getElementById('goalCategoryGroup');
     
-    // Show category selection only for expense_limit goals
+    // Exibe a seleção de categoria apenas para metas do tipo limite de gastos
     if (goalType === 'expense_limit') {
         categoryGroup.style.display = 'block';
     } else {
@@ -359,7 +359,7 @@ function checkGoalAlerts() {
         const progress = calculateProgress(goal);
         const daysRemaining = calculateDaysRemaining(goal.target_date);
 
-        // Check for completion
+        // Verifica se a meta foi concluída
         if (progress >= 100) {
             alerts.push({
                 type: 'success',
@@ -367,7 +367,7 @@ function checkGoalAlerts() {
                 message: `Parabéns! Você atingiu a meta "${goal.title}"!`
             });
         }
-        // Check for near completion (90%+)
+        // Verifica se a meta está quase concluída (90% ou mais)
         else if (progress >= 90) {
             alerts.push({
                 type: 'warning',
@@ -375,7 +375,7 @@ function checkGoalAlerts() {
                 message: `Você está quase lá! Meta "${goal.title}" está ${progress.toFixed(1)}% concluída.`
             });
         }
-        // Check for overdue goals
+        // Verifica se a meta está vencida
         else if (daysRemaining < 0) {
             alerts.push({
                 type: 'warning',
@@ -383,7 +383,7 @@ function checkGoalAlerts() {
                 message: `A meta "${goal.title}" está vencida há ${Math.abs(daysRemaining)} dias.`
             });
         }
-        // Check for goals near deadline
+        // Verifica se a meta está próxima do prazo
         else if (daysRemaining <= 7) {
             alerts.push({
                 type: 'warning',
@@ -402,7 +402,7 @@ function checkGoalAlerts() {
             </div>
         `).join('');
 
-        // Insert alerts before the goals preview
+        // Insere os alertas antes da pré-visualização das metas
         const existingAlerts = document.querySelector('.goals-alerts');
         if (existingAlerts) {
             existingAlerts.remove();
@@ -440,7 +440,7 @@ function updateGoalProgressFromTransactions() {
 
         switch (goal.goal_type) {
             case 'savings':
-                // Calculate total savings (income - expenses) for current month
+                // Calcula a economia total (receitas - despesas) do mês atual
                 const monthlyTransactions = transactions.filter(t => t.month === currentMonth);
                 const monthlyIncome = monthlyTransactions.reduce((sum, t) => sum + (t.income || 0), 0);
                 const monthlyExpenses = monthlyTransactions.reduce((sum, t) => sum + (t.expense || 0), 0);
@@ -448,7 +448,7 @@ function updateGoalProgressFromTransactions() {
                 break;
 
             case 'expense_limit':
-                // Calculate expenses for specific category if set, or all expenses
+                // Calcula despesas da categoria específica se definida, ou todas as despesas
                 let expenseTransactions = transactions.filter(t => t.month === currentMonth);
                 if (goal.category_id) {
                     expenseTransactions = expenseTransactions.filter(t => t.category_id === goal.category_id);
@@ -457,21 +457,21 @@ function updateGoalProgressFromTransactions() {
                 break;
 
             case 'income':
-                // Calculate total income for current month
+                // Calcula a receita total do mês atual
                 const incomeTransactions = transactions.filter(t => t.month === currentMonth);
                 calculatedAmount = incomeTransactions.reduce((sum, t) => sum + (t.income || 0), 0);
                 break;
         }
 
-        // Update goal if calculated amount is different from current amount
+        // Atualiza a meta se o valor calculado for diferente do valor atual
         if (Math.abs(calculatedAmount - (goal.current_amount || 0)) > 0.01) {
             updateGoalProgress(goal._id, calculatedAmount);
         }
     });
 }
 
-// Initialize goals when DOM is loaded
+// Inicializa as metas quando o DOM estiver carregado
 document.addEventListener('DOMContentLoaded', function() {
-    // Initialize goals after a short delay to ensure other components are loaded
+    // Inicializa as metas após um breve atraso para garantir que outros componentes estejam carregados
     setTimeout(initializeGoals, 500);
 });
