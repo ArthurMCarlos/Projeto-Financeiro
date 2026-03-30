@@ -9,7 +9,7 @@ let goals = [];
 let charts = {};
 
 // API Base URL
-const API_BASE = "https://projeto-financeiro-z2th.onrender.com";
+const API_BASE = "https://projeto-financeiro-c8sb.onrender.com";
 
 // =====================================================
 // KEEP-ALIVE MANAGER
