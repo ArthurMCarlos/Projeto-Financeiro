@@ -12,7 +12,7 @@ from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError, AutoR
 from bson import ObjectId
 import os
 import calendar
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import pandas as pd
 import io
 import time
@@ -334,7 +334,7 @@ def token_required(f):
 
             current_user = None
             if db_manager.db is not None:
-                current_user = users_collection.find_one({'_id': ObjectId(current_user_id)})
+                current_user = users_collection.find_one({'_id': safe_object_id(current_user_id)})
             else:
                 current_user = next((u for u in memory_storage['users'] if u['_id'] == current_user_id), None)
 
@@ -352,6 +352,10 @@ def token_required(f):
 
 # Helper functions
 def serialize_doc(doc):
+    """
+    Serializa documentos MongoDB para JSON.
+    Trata ObjectId, datetime e estruturas aninhadas recursivamente.
+    """
     if doc is None:
         return None
 
@@ -365,9 +369,17 @@ def serialize_doc(doc):
                 result[key] = str(value)
             elif isinstance(value, datetime):
                 result[key] = value.isoformat()
+            elif isinstance(value, (dict, list)):
+                result[key] = serialize_doc(value)  # recursão para objetos aninhados
             else:
                 result[key] = value
         return result
+
+    if isinstance(doc, ObjectId):
+        return str(doc)
+
+    if isinstance(doc, datetime):
+        return doc.isoformat()
 
     return doc
 
@@ -375,66 +387,49 @@ def get_next_id():
     import uuid
     return str(uuid.uuid4())
 
-def update_account_balance(user_id, account_id, amount_change):
+def safe_object_id(id_str):
+    """
+    Converte uma string em ObjectId de forma segura.
+    Lança ValueError com mensagem amigável se o formato for inválido.
+    """
+    try:
+        return ObjectId(id_str)
+    except Exception:
+        raise ValueError(f"ID inválido: '{id_str}'")
+
+def validate_password(password: str) -> str | None:
+    """
+    Valida a força da senha.
+    Retorna mensagem de erro se inválida, None se válida.
+    """
+    if not password or len(password) < 8:
+        return 'A senha deve ter pelo menos 8 caracteres'
+    return None
+
+
     if not account_id or amount_change == 0:
         return
 
     try:
         if db_manager.db is not None:
-            account = accounts_collection.find_one({
-                '_id': ObjectId(account_id),
-                'user_id': user_id
-            })
-
-            if account:
-                # Se for cartão de crédito, usar lógica invertida
-                if account.get('type') == 'cartao':
-                    current_balance = account.get('balance', 0)
-                    # Para cartão de crédito, o comportamento é o mesmo de contas normais:
-                    # - expense (gastos) diminuem o limite (amount_change negativo)
-                    # - income (pagamentos) aumentam o limite (amount_change positivo)
-                    # A fórmula é simplesmente: atual + mudança
-                    new_balance = current_balance + amount_change
-                    
-                    accounts_collection.update_one(
-                        {'_id': ObjectId(account_id), 'user_id': user_id},
-                        {'$set': {
-                            'balance': new_balance,
-                            'updated_at': datetime.utcnow()
-                        }}
-                    )
-                    print(f"💳 Cartão atualizado: {account.get('name')} | Anterior: R$ {current_balance} | Novo: R$ {new_balance} | Mudança: R$ {amount_change}")
-                else:
-                    # Para outras contas, usar lógica normal (soma)
-                    current_balance = account.get('balance', 0)
-                    new_balance = current_balance + amount_change
-
-                    accounts_collection.update_one(
-                        {'_id': ObjectId(account_id), 'user_id': user_id},
-                        {'$set': {
-                            'balance': new_balance,
-                            'updated_at': datetime.utcnow()
-                        }}
-                    )
+            # Usa $inc atômico — elimina race condition entre leitura e escrita
+            accounts_collection.update_one(
+                {'_id': safe_object_id(account_id), 'user_id': user_id},
+                {
+                    '$inc': {'balance': amount_change},
+                    '$set': {'updated_at': datetime.now(timezone.utc)}
+                }
+            )
         else:
             account = next((a for a in memory_storage['accounts']
                            if a['_id'] == account_id and a['user_id'] == user_id), None)
-
             if account:
-                # Se for cartão de crédito, usar lógica específica
-                if account.get('type') == 'cartao':
-                    current_balance = account.get('balance', 0)
-                    new_balance = current_balance + amount_change
-                    account['balance'] = new_balance
-                    account['updated_at'] = datetime.utcnow()
-                    print(f"💳 Cartão atualizado (memory): {account.get('name')} | Anterior: R$ {current_balance} | Novo: R$ {new_balance}")
-                else:
-                    current_balance = account.get('balance', 0)
-                    account['balance'] = current_balance + amount_change
-                    account['updated_at'] = datetime.utcnow()
+                account['balance'] = account.get('balance', 0) + amount_change
+                account['updated_at'] = datetime.now(timezone.utc)
 
     except Exception as e:
         print(f"Erro ao atualizar saldo da conta {account_id}: {e}")
+
 
 def recalculate_account_balance(user_id, account_id):
     if not account_id:
@@ -444,7 +439,7 @@ def recalculate_account_balance(user_id, account_id):
         # Verificar se é um cartão de crédito - NÃO recalcular!
         if db_manager.db is not None:
             account_check = accounts_collection.find_one({
-                '_id': ObjectId(account_id),
+                '_id': safe_object_id(account_id),
                 'user_id': user_id
             })
         else:
@@ -477,10 +472,10 @@ def recalculate_account_balance(user_id, account_id):
                 total_change -= transaction.get('expense', 0)
 
             accounts_collection.update_one(
-                {'_id': ObjectId(account_id), 'user_id': user_id},
+                {'_id': safe_object_id(account_id), 'user_id': user_id},
                 {'$set': {
                     'balance': total_change,
-                    'updated_at': datetime.utcnow()
+                    'updated_at': datetime.now(timezone.utc)
                 }}
             )
         else:
@@ -501,7 +496,7 @@ def recalculate_account_balance(user_id, account_id):
 
             if account:
                 account['balance'] = total_change
-                account['updated_at'] = datetime.utcnow()
+                account['updated_at'] = datetime.now(timezone.utc)
 
     except Exception as e:
         print(f"Erro ao recalcular saldo da conta {account_id}: {e}")
@@ -512,7 +507,7 @@ def recalculate_account_balance(user_id, account_id):
 # =====================================================
 
 def check_and_reset_credit_cards(user_id):
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     today = now.day
     # Número de dias do mês atual
     days_in_month = calendar.monthrange(now.year, now.month)[1]
@@ -541,7 +536,7 @@ def check_and_reset_credit_cards(user_id):
 
             for card in credit_cards:
                 last_reset = card.get('last_reset_date')
-                today_date = datetime.utcnow().date()
+                today_date = datetime.now(timezone.utc).date()
 
                 if last_reset:
                     if isinstance(last_reset, datetime):
@@ -559,8 +554,8 @@ def check_and_reset_credit_cards(user_id):
                     {'_id': card['_id']},
                     {'$set': {
                         'balance': credit_limit,
-                        'last_reset_date': datetime.utcnow(),
-                        'updated_at': datetime.utcnow()
+                        'last_reset_date': datetime.now(timezone.utc),
+                        'updated_at': datetime.now(timezone.utc)
                     }}
                 )
 
@@ -571,7 +566,7 @@ def check_and_reset_credit_cards(user_id):
                     'old_balance': old_balance,
                     'new_balance': credit_limit,
                     'credit_limit': credit_limit,
-                    'reset_date': datetime.utcnow()
+                    'reset_date': datetime.now(timezone.utc)
                 }
                 credit_card_resets_collection.insert_one(reset_record)
 
@@ -590,7 +585,7 @@ def check_and_reset_credit_cards(user_id):
 
             for card in credit_cards:
                 last_reset = card.get('last_reset_date')
-                today_date = datetime.utcnow().date()
+                today_date = datetime.now(timezone.utc).date()
 
                 if last_reset:
                     if isinstance(last_reset, datetime):
@@ -605,8 +600,8 @@ def check_and_reset_credit_cards(user_id):
                 old_balance = card.get('balance', 0)
 
                 card['balance'] = credit_limit
-                card['last_reset_date'] = datetime.utcnow()
-                card['updated_at'] = datetime.utcnow()
+                card['last_reset_date'] = datetime.now(timezone.utc)
+                card['updated_at'] = datetime.now(timezone.utc)
 
                 reset_record = {
                     '_id': get_next_id(),
@@ -616,7 +611,7 @@ def check_and_reset_credit_cards(user_id):
                     'old_balance': old_balance,
                     'new_balance': credit_limit,
                     'credit_limit': credit_limit,
-                    'reset_date': datetime.utcnow()
+                    'reset_date': datetime.now(timezone.utc)
                 }
                 memory_storage['credit_card_resets'].append(reset_record)
 
@@ -638,7 +633,7 @@ def force_reset_credit_card(user_id, account_id):
     try:
         if db_manager.db is not None:
             card = accounts_collection.find_one({
-                '_id': ObjectId(account_id),
+                '_id': safe_object_id(account_id),
                 'user_id': user_id,
                 'type': 'cartao'
             })
@@ -673,11 +668,11 @@ def force_reset_credit_card(user_id, account_id):
             print(f"   Saldo correto: R$ {correct_balance}")
 
             accounts_collection.update_one(
-                {'_id': ObjectId(account_id)},
+                {'_id': safe_object_id(account_id)},
                 {'$set': {
                     'balance': correct_balance,
-                    'last_reset_date': datetime.utcnow(),
-                    'updated_at': datetime.utcnow()
+                    'last_reset_date': datetime.now(timezone.utc),
+                    'updated_at': datetime.now(timezone.utc)
                 }}
             )
 
@@ -688,7 +683,7 @@ def force_reset_credit_card(user_id, account_id):
                 'old_balance': old_balance,
                 'new_balance': correct_balance,
                 'credit_limit': credit_limit,
-                'reset_date': datetime.utcnow(),
+                'reset_date': datetime.now(timezone.utc),
                 'manual': True
             }
             credit_card_resets_collection.insert_one(reset_record)
@@ -723,8 +718,8 @@ def force_reset_credit_card(user_id, account_id):
             correct_balance = credit_limit - total_expenses
 
             card['balance'] = correct_balance
-            card['last_reset_date'] = datetime.utcnow()
-            card['updated_at'] = datetime.utcnow()
+            card['last_reset_date'] = datetime.now(timezone.utc)
+            card['updated_at'] = datetime.now(timezone.utc)
 
             return {
                 'id': account_id,
@@ -807,6 +802,20 @@ def register():
     if not data or not all(k in data for k in ('name', 'email', 'password')):
         return jsonify({'message': 'Dados incompletos'}), 400
 
+    # Validação de nome
+    if not data['name'] or not data['name'].strip():
+        return jsonify({'message': 'O nome não pode ser vazio'}), 400
+
+    # Validação básica de email
+    import re as _re
+    if not _re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', data['email']):
+        return jsonify({'message': 'Email inválido'}), 400
+
+    # Validação de força de senha
+    pwd_error = validate_password(data['password'])
+    if pwd_error:
+        return jsonify({'message': pwd_error}), 400
+
     if db_manager.db is not None:
         existing_user = users_collection.find_one({'email': data['email']})
     else:
@@ -816,11 +825,12 @@ def register():
         return jsonify({'message': 'Email já cadastrado'}), 409
 
     user_data = {
-        'name': data['name'],
-        'email': data['email'],
+        'name': data['name'].strip(),
+        'email': data['email'].lower().strip(),
         'password': generate_password_hash(data['password']),
-        'created_at': datetime.utcnow()
+        'created_at': datetime.now(timezone.utc)
     }
+
 
     if db_manager.db is not None:
         result = users_collection.insert_one(user_data)
@@ -846,7 +856,7 @@ def register():
             'name': category_info['name'],
             'description': category_info.get('description', ''),
             'user_id': user_id,
-            'created_at': datetime.utcnow()
+            'created_at': datetime.now(timezone.utc)
         }
 
         if db_manager.db is not None:
@@ -860,7 +870,7 @@ def register():
         'type': 'corrente',
         'balance': 0,
         'user_id': user_id,
-        'created_at': datetime.utcnow()
+        'created_at': datetime.now(timezone.utc)
     }
 
     if db_manager.db is not None:
@@ -890,7 +900,7 @@ def login():
 
     token = jwt.encode({
         'user_id': str(user['_id']),
-        'exp': datetime.utcnow() + timedelta(days=7)
+        'exp': datetime.now(timezone.utc) + timedelta(days=7)
     }, app.config['SECRET_KEY'], algorithm='HS256')
 
     return jsonify({
@@ -909,7 +919,7 @@ def refresh_token(current_user):
     """Renova o token JWT sem exigir login novamente."""
     new_token = jwt.encode({
         'user_id': str(current_user['_id']),
-        'exp': datetime.utcnow() + timedelta(days=7)
+        'exp': datetime.now(timezone.utc) + timedelta(days=7)
     }, app.config['SECRET_KEY'], algorithm='HS256')
 
     return jsonify({'token': new_token})
@@ -955,7 +965,7 @@ def create_category(current_user):
         'name': data['name'],
         'description': data.get('description', ''),
         'user_id': user_id,
-        'created_at': datetime.utcnow()
+        'created_at': datetime.now(timezone.utc)
     }
 
     if db_manager.db is not None:
@@ -983,7 +993,7 @@ def update_category(current_user, category_id):
             existing_category = categories_collection.find_one({
                 'name': data['name'],
                 'user_id': user_id,
-                '_id': {'$ne': ObjectId(category_id)}
+                '_id': {'$ne': safe_object_id(category_id)}
             })
         else:
             existing_category = next((c for c in memory_storage['categories']
@@ -999,11 +1009,11 @@ def update_category(current_user, category_id):
         if field in data:
             update_data[field] = data[field]
 
-    update_data['updated_at'] = datetime.utcnow()
+    update_data['updated_at'] = datetime.now(timezone.utc)
 
     if db_manager.db is not None:
         result = categories_collection.update_one(
-            {'_id': ObjectId(category_id), 'user_id': user_id},
+            {'_id': safe_object_id(category_id), 'user_id': user_id},
             {'$set': update_data}
         )
 
@@ -1048,7 +1058,7 @@ def delete_category(current_user, category_id):
 
     if db_manager.db is not None:
         result = categories_collection.delete_one({
-            '_id': ObjectId(category_id),
+            '_id': safe_object_id(category_id),
             'user_id': user_id
         })
 
@@ -1101,7 +1111,7 @@ def create_transaction(current_user):
         'income': float(data.get('income', 0)),
         'account_id': data.get('account_id'),
         'user_id': user_id,
-        'created_at': datetime.utcnow()
+        'created_at': datetime.now(timezone.utc)
     }
 
     if db_manager.db is not None:
@@ -1130,7 +1140,7 @@ def update_transaction(current_user, transaction_id):
     # ── 1. Buscar a transação ANTES de modificar ────────────────────────────
     if db_manager.db is not None:
         original = transactions_collection.find_one(
-            {'_id': ObjectId(transaction_id), 'user_id': user_id}
+            {'_id': safe_object_id(transaction_id), 'user_id': user_id}
         )
     else:
         original = next((t for t in memory_storage['transactions']
@@ -1145,12 +1155,12 @@ def update_transaction(current_user, transaction_id):
         if field in data:
             update_data[field] = float(data[field]) if field in ['expense', 'current_value', 'income'] else data[field]
 
-    update_data['updated_at'] = datetime.utcnow()
+    update_data['updated_at'] = datetime.now(timezone.utc)
 
     # ── 3. Aplicar atualização no banco ────────────────────────────────────
     if db_manager.db is not None:
         transactions_collection.update_one(
-            {'_id': ObjectId(transaction_id), 'user_id': user_id},
+            {'_id': safe_object_id(transaction_id), 'user_id': user_id},
             {'$set': update_data}
         )
     else:
@@ -1172,7 +1182,7 @@ def update_transaction(current_user, transaction_id):
             if not acc_id:
                 return False
             if db_manager.db is not None:
-                acc = accounts_collection.find_one({'_id': ObjectId(acc_id), 'user_id': user_id})
+                acc = accounts_collection.find_one({'_id': safe_object_id(acc_id), 'user_id': user_id})
             else:
                 acc = next((a for a in memory_storage['accounts']
                             if a['_id'] == acc_id and a['user_id'] == user_id), None)
@@ -1204,7 +1214,7 @@ def delete_transaction(current_user, transaction_id):
 
     if db_manager.db is not None:
         transaction = transactions_collection.find_one({
-            '_id': ObjectId(transaction_id),
+            '_id': safe_object_id(transaction_id),
             'user_id': user_id
         })
 
@@ -1218,7 +1228,7 @@ def delete_transaction(current_user, transaction_id):
             update_account_balance(user_id, transaction['account_id'], net_change)
 
         result = transactions_collection.delete_one({
-            '_id': ObjectId(transaction_id),
+            '_id': safe_object_id(transaction_id),
             'user_id': user_id
         })
     else:
@@ -1271,7 +1281,7 @@ def create_income(current_user):
         'amount': float(data['amount']),
         'account_id': data.get('account_id'),
         'user_id': user_id,
-        'created_at': datetime.utcnow()
+        'created_at': datetime.now(timezone.utc)
     }
 
     if db_manager.db is not None:
@@ -1297,7 +1307,7 @@ def update_income(current_user, income_id):
     # ── 1. Buscar receita original ANTES de modificar ──────────────────────
     if db_manager.db is not None:
         original = incomes_collection.find_one(
-            {'_id': ObjectId(income_id), 'user_id': user_id}
+            {'_id': safe_object_id(income_id), 'user_id': user_id}
         )
     else:
         original = next((i for i in memory_storage['incomes']
@@ -1312,12 +1322,12 @@ def update_income(current_user, income_id):
         if field in data:
             update_data[field] = float(data[field]) if field == 'amount' else data[field]
 
-    update_data['updated_at'] = datetime.utcnow()
+    update_data['updated_at'] = datetime.now(timezone.utc)
 
     # ── 3. Persistir ───────────────────────────────────────────────────────
     if db_manager.db is not None:
         incomes_collection.update_one(
-            {'_id': ObjectId(income_id), 'user_id': user_id},
+            {'_id': safe_object_id(income_id), 'user_id': user_id},
             {'$set': update_data}
         )
     else:
@@ -1338,7 +1348,7 @@ def update_income(current_user, income_id):
         if not acc_id:
             return False
         if db_manager.db is not None:
-            acc = accounts_collection.find_one({'_id': ObjectId(acc_id), 'user_id': user_id})
+            acc = accounts_collection.find_one({'_id': safe_object_id(acc_id), 'user_id': user_id})
         else:
             acc = next((a for a in memory_storage['accounts']
                         if a['_id'] == acc_id and a['user_id'] == user_id), None)
@@ -1368,7 +1378,7 @@ def delete_income(current_user, income_id):
 
     if db_manager.db is not None:
         income = incomes_collection.find_one({
-            '_id': ObjectId(income_id),
+            '_id': safe_object_id(income_id),
             'user_id': user_id
         })
 
@@ -1379,7 +1389,7 @@ def delete_income(current_user, income_id):
             update_account_balance(user_id, income['account_id'], -float(income.get('amount', 0)))
 
         result = incomes_collection.delete_one({
-            '_id': ObjectId(income_id),
+            '_id': safe_object_id(income_id),
             'user_id': user_id
         })
     else:
@@ -1427,7 +1437,7 @@ def create_budget(current_user):
         'amount': float(data['amount']),
         'month': data['month'],
         'user_id': user_id,
-        'created_at': datetime.utcnow()
+        'created_at': datetime.now(timezone.utc)
     }
 
     if db_manager.db is not None:
@@ -1455,11 +1465,11 @@ def update_budget(current_user, budget_id):
             else:
                 update_data[field] = data[field]
 
-    update_data['updated_at'] = datetime.utcnow()
+    update_data['updated_at'] = datetime.now(timezone.utc)
 
     if db_manager.db is not None:
         result = budgets_collection.update_one(
-            {'_id': ObjectId(budget_id), 'user_id': user_id},
+            {'_id': safe_object_id(budget_id), 'user_id': user_id},
             {'$set': update_data}
         )
 
@@ -1484,7 +1494,7 @@ def delete_budget(current_user, budget_id):
 
     if db_manager.db is not None:
         result = budgets_collection.delete_one({
-            '_id': ObjectId(budget_id),
+            '_id': safe_object_id(budget_id),
             'user_id': user_id
         })
 
@@ -1532,7 +1542,7 @@ def create_account(current_user):
         'type': data['type'],
         'balance': float(data.get('balance', 0)),
         'user_id': user_id,
-        'created_at': datetime.utcnow()
+        'created_at': datetime.now(timezone.utc)
     }
 
     if data['type'] == 'cartao':
@@ -1577,11 +1587,11 @@ def update_account(current_user, account_id):
             else:
                 update_data[field] = data[field]
 
-    update_data['updated_at'] = datetime.utcnow()
+    update_data['updated_at'] = datetime.now(timezone.utc)
 
     if db_manager.db is not None:
         result = accounts_collection.update_one(
-            {'_id': ObjectId(account_id), 'user_id': user_id},
+            {'_id': safe_object_id(account_id), 'user_id': user_id},
             {'$set': update_data}
         )
 
@@ -1606,7 +1616,7 @@ def delete_account(current_user, account_id):
 
     if db_manager.db is not None:
         result = accounts_collection.delete_one({
-            '_id': ObjectId(account_id),
+            '_id': safe_object_id(account_id),
             'user_id': user_id
         })
 
@@ -1639,7 +1649,7 @@ def debug_credit_card(current_user, account_id):
         # Buscar o cartão
         if db_manager.db is not None:
             card = accounts_collection.find_one({
-                '_id': ObjectId(account_id),
+                '_id': safe_object_id(account_id),
                 'user_id': user_id,
                 'type': 'cartao'
             })
@@ -1698,7 +1708,7 @@ def fix_credit_card_balance(current_user, account_id):
     try:
         if db_manager.db is not None:
             card = accounts_collection.find_one({
-                '_id': ObjectId(account_id),
+                '_id': safe_object_id(account_id),
                 'user_id': user_id,
                 'type': 'cartao'
             })
@@ -1728,10 +1738,10 @@ def fix_credit_card_balance(current_user, account_id):
             
             # Atualizar o saldo
             accounts_collection.update_one(
-                {'_id': ObjectId(account_id)},
+                {'_id': safe_object_id(account_id)},
                 {'$set': {
                     'balance': correct_balance,
-                    'updated_at': datetime.utcnow()
+                    'updated_at': datetime.now(timezone.utc)
                 }}
             )
             
@@ -1803,7 +1813,7 @@ def get_credit_cards(current_user):
         credit_cards = [a for a in memory_storage['accounts']
                        if a['user_id'] == user_id and a['type'] == 'cartao']
 
-    today = datetime.utcnow().day
+    today = datetime.now(timezone.utc).day
     cards_with_info = []
 
     for card in credit_cards:
@@ -1814,8 +1824,8 @@ def get_credit_cards(current_user):
             days_until_closing = closing_day - today
         else:
             import calendar
-            current_month = datetime.utcnow().month
-            current_year = datetime.utcnow().year
+            current_month = datetime.now(timezone.utc).month
+            current_year = datetime.now(timezone.utc).year
             days_in_month = calendar.monthrange(current_year, current_month)[1]
             days_until_closing = (days_in_month - today) + closing_day
 
@@ -1882,7 +1892,7 @@ def create_goal(current_user):
         'deadline': data['deadline'],
         'status': 'ativa',
         'user_id': user_id,
-        'created_at': datetime.utcnow()
+        'created_at': datetime.now(timezone.utc)
     }
 
     if db_manager.db is not None:
@@ -1910,11 +1920,11 @@ def update_goal(current_user, goal_id):
             else:
                 update_data[field] = data[field]
 
-    update_data['updated_at'] = datetime.utcnow()
+    update_data['updated_at'] = datetime.now(timezone.utc)
 
     if db_manager.db is not None:
         result = goals_collection.update_one(
-            {'_id': ObjectId(goal_id), 'user_id': user_id},
+            {'_id': safe_object_id(goal_id), 'user_id': user_id},
             {'$set': update_data}
         )
 
@@ -1939,7 +1949,7 @@ def delete_goal(current_user, goal_id):
 
     if db_manager.db is not None:
         result = goals_collection.delete_one({
-            '_id': ObjectId(goal_id),
+            '_id': safe_object_id(goal_id),
             'user_id': user_id
         })
 
@@ -2019,7 +2029,7 @@ def create_transfer(current_user):
     to_id = data['to_account_id']
     amount = float(data['amount'])
     description = data.get('description', 'Transferência entre contas')
-    date = data.get('date', datetime.utcnow().strftime('%Y-%m'))
+    date = data.get('date', datetime.now(timezone.utc).strftime('%Y-%m'))
 
     if from_id == to_id:
         return jsonify({'message': 'Conta de origem e destino não podem ser iguais.'}), 400
@@ -2029,8 +2039,8 @@ def create_transfer(current_user):
 
     # Buscar contas
     if db_manager.db is not None:
-        from_account = accounts_collection.find_one({'_id': ObjectId(from_id), 'user_id': user_id})
-        to_account = accounts_collection.find_one({'_id': ObjectId(to_id), 'user_id': user_id})
+        from_account = accounts_collection.find_one({'_id': safe_object_id(from_id), 'user_id': user_id})
+        to_account = accounts_collection.find_one({'_id': safe_object_id(to_id), 'user_id': user_id})
     else:
         from_account = next((a for a in memory_storage['accounts'] if a['_id'] == from_id and a['user_id'] == user_id), None)
         to_account = next((a for a in memory_storage['accounts'] if a['_id'] == to_id and a['user_id'] == user_id), None)
@@ -2055,7 +2065,7 @@ def create_transfer(current_user):
         'amount': amount,
         'description': description,
         'date': date,
-        'created_at': datetime.utcnow()
+        'created_at': datetime.now(timezone.utc)
     }
 
     if db_manager.db is not None:
@@ -2076,8 +2086,8 @@ def create_transfer(current_user):
     # Buscar saldos atualizados para retornar ao frontend
     try:
         if db_manager.db is not None:
-            updated_from = accounts_collection.find_one({'_id': ObjectId(from_id), 'user_id': user_id})
-            updated_to = accounts_collection.find_one({'_id': ObjectId(to_id), 'user_id': user_id})
+            updated_from = accounts_collection.find_one({'_id': safe_object_id(from_id), 'user_id': user_id})
+            updated_to = accounts_collection.find_one({'_id': safe_object_id(to_id), 'user_id': user_id})
             new_from_balance = updated_from.get('balance', 0) if updated_from else None
             new_to_balance = updated_to.get('balance', 0) if updated_to else None
         else:
@@ -2109,7 +2119,7 @@ def delete_transfer(current_user, transfer_id):
     user_id = str(current_user['_id'])
 
     if db_manager.db is not None:
-        transfer = db_manager.db.transfers.find_one({'_id': ObjectId(transfer_id), 'user_id': user_id})
+        transfer = db_manager.db.transfers.find_one({'_id': safe_object_id(transfer_id), 'user_id': user_id})
         if not transfer:
             return jsonify({'message': 'Transferência não encontrada.'}), 404
 
@@ -2117,7 +2127,7 @@ def delete_transfer(current_user, transfer_id):
         update_account_balance(user_id, transfer['from_account_id'], transfer['amount'])
         update_account_balance(user_id, transfer['to_account_id'], -transfer['amount'])
 
-        db_manager.db.transfers.delete_one({'_id': ObjectId(transfer_id), 'user_id': user_id})
+        db_manager.db.transfers.delete_one({'_id': safe_object_id(transfer_id), 'user_id': user_id})
     else:
         transfer = next((t for t in memory_storage['transfers'] if t['_id'] == transfer_id and t['user_id'] == user_id), None)
         if not transfer:
@@ -2221,56 +2231,68 @@ def import_data(current_user):
 
         category_lookup = {c['name']: str(c['_id']) for c in categories}
 
+        # ── Fase 1: Descobrir categorias novas e criá-las em lote ─────────────
+        new_category_names = set()
+        for _, row in df.iterrows():
+            name = str(row.get('Categoria', '') or '').strip()
+            if name and name not in category_lookup:
+                new_category_names.add(name)
+
+        if new_category_names:
+            now = datetime.now(timezone.utc)
+            new_cats = [
+                {'name': n, 'user_id': user_id, 'created_at': now}
+                for n in new_category_names
+            ]
+            if db_manager.db is not None:
+                result = categories_collection.insert_many(new_cats)
+                for cat, inserted_id in zip(new_cats, result.inserted_ids):
+                    category_lookup[cat['name']] = str(inserted_id)
+            else:
+                for cat in new_cats:
+                    cat['_id'] = get_next_id()
+                    memory_storage['categories'].append(cat)
+                    category_lookup[cat['name']] = cat['_id']
+
+        # ── Fase 2: Construir todos os documentos em memória ──────────────────
+        transactions_to_insert = []
         imported_count = 0
+        errors = 0
 
         for _, row in df.iterrows():
             try:
-                category_name = row.get('Categoria', '')
-                category_id = category_lookup.get(category_name)
+                category_name = str(row.get('Categoria', '') or '').strip()
+                category_id = category_lookup.get(category_name, '')
 
-                if not category_id:
-                    category_data = {
-                        'name': category_name,
-                        'user_id': user_id,
-                        'created_at': datetime.utcnow()
-                    }
-
-                    if db_manager.db is not None:
-                        result = categories_collection.insert_one(category_data)
-                        category_id = str(result.inserted_id)
-                    else:
-                        category_id = get_next_id()
-                        category_data['_id'] = category_id
-                        memory_storage['categories'].append(category_data)
-
-                    category_lookup[category_name] = category_id
-
-                transaction_data = {
-                    'month': str(row.get('Mês', '')),
-                    'reason': str(row.get('Motivo', '')),
-                    'expense': float(row.get('Valor Gasto (R$)', 0)),
-                    'current_value': float(row.get('Valor Atual (R$)', 0)),
-                    'category_id': category_id,
-                    'income': float(row.get('Valor Recebido (R$)', 0)),
-                    'user_id': user_id,
-                    'created_at': datetime.utcnow()
-                }
-
-                if db_manager.db is not None:
-                    transactions_collection.insert_one(transaction_data)
-                else:
-                    transaction_data['_id'] = get_next_id()
-                    memory_storage['transactions'].append(transaction_data)
-
+                transactions_to_insert.append({
+                    'month':         str(row.get('Mês', '') or ''),
+                    'reason':        str(row.get('Motivo', '') or ''),
+                    'expense':       float(row.get('Valor Gasto (R$)', 0) or 0),
+                    'current_value': float(row.get('Valor Atual (R$)', 0) or 0),
+                    'category_id':   category_id,
+                    'income':        float(row.get('Valor Recebido (R$)', 0) or 0),
+                    'user_id':       user_id,
+                    'created_at':    datetime.now(timezone.utc)
+                })
                 imported_count += 1
-
             except Exception as e:
-                print(f"Erro ao importar linha: {e}")
+                print(f"Erro ao processar linha: {e}")
+                errors += 1
                 continue
+
+        # ── Fase 3: Inserção em lote (1 query em vez de N) ───────────────────
+        if transactions_to_insert:
+            if db_manager.db is not None:
+                transactions_collection.insert_many(transactions_to_insert)
+            else:
+                for t in transactions_to_insert:
+                    t['_id'] = get_next_id()
+                    memory_storage['transactions'].append(t)
 
         return jsonify({
             'message': 'Importação concluída',
-            'imported': imported_count
+            'imported': imported_count,
+            'errors':   errors
         })
 
     except Exception as e:
@@ -2313,8 +2335,64 @@ def health_check():
         'status': 'healthy',
         'database': db_status,
         'message': 'Servidor ativo',
-        'timestamp': datetime.utcnow().isoformat()
+        'timestamp': datetime.now(timezone.utc).isoformat()
     })
+
+
+# =====================================================
+# TRATAMENTO GLOBAL DE ERROS
+# =====================================================
+
+@app.errorhandler(ValueError)
+def handle_invalid_id(e):
+    """Captura IDs malformados (safe_object_id) e retorna 400 em vez de 500."""
+    return jsonify({'message': str(e)}), 400
+
+@app.errorhandler(404)
+def handle_404(e):
+    return jsonify({'message': 'Recurso não encontrado'}), 404
+
+@app.errorhandler(413)
+def handle_413(e):
+    return jsonify({'message': 'Arquivo muito grande. Limite: 10 MB'}), 413
+
+@app.errorhandler(429)
+def handle_429(e):
+    return jsonify({'message': 'Muitas tentativas. Aguarde um momento e tente novamente.'}), 429
+
+# =====================================================
+# ÍNDICES MONGODB — criados uma vez na inicialização
+# =====================================================
+
+def create_indexes():
+    """Cria índices essenciais para performance."""
+    if db_manager.db is None:
+        return
+    try:
+        db = db_manager.db
+        # Consultas frequentes por user_id em todas as coleções
+        for col_name in ['transactions', 'incomes', 'budgets', 'accounts', 'goals',
+                         'categories', 'transfers', 'credit_card_resets']:
+            db[col_name].create_index('user_id')
+
+        # Login — busca por email
+        db.users.create_index('email', unique=True)
+
+        # Transações — listagem e exportação ordenada por mês
+        db.transactions.create_index([('user_id', 1), ('month', -1)])
+        db.incomes.create_index([('user_id', 1), ('month', -1)])
+
+        # Reset de cartão — busca por data
+        db.credit_card_resets.create_index([('user_id', 1), ('reset_date', -1)])
+
+        print('✅ Índices MongoDB criados/verificados com sucesso')
+    except Exception as e:
+        print(f'⚠️ Erro ao criar índices: {e}')
+
+# Cria índices ao iniciar (não bloqueia se já existirem)
+with app.app_context():
+    create_indexes()
+
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
