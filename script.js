@@ -8,6 +8,52 @@ let currentPage = 'dashboard';
 // API Base URL
 const API_BASE = window.location.origin;
 
+// ── Toast de notificação (substitui alert() bloqueante) ──────────────────────
+function showToast(message, type = 'info') {
+    // Remove toast anterior se existir
+    document.querySelectorAll('.app-toast').forEach(t => t.remove());
+
+    const colors = {
+        success: '#27500A',
+        error:   '#A32D2D',
+        info:    '#185FA5',
+        warning: '#854F0B'
+    };
+    const backgrounds = {
+        success: '#EAF3DE',
+        error:   '#FCEBEB',
+        info:    '#E6F1FB',
+        warning: '#FAEEDA'
+    };
+
+    const toast = document.createElement('div');
+    toast.className = 'app-toast';
+    toast.textContent = message;
+    Object.assign(toast.style, {
+        position:     'fixed',
+        bottom:       '24px',
+        right:        '24px',
+        background:   backgrounds[type] || backgrounds.info,
+        color:        colors[type] || colors.info,
+        padding:      '12px 20px',
+        borderRadius: '10px',
+        fontSize:     '14px',
+        fontFamily:   'inherit',
+        boxShadow:    '0 4px 16px rgba(0,0,0,0.12)',
+        zIndex:       '9999',
+        maxWidth:     '360px',
+        lineHeight:   '1.5',
+        opacity:      '0',
+        transition:   'opacity 0.25s ease'
+    });
+    document.body.appendChild(toast);
+    requestAnimationFrame(() => { toast.style.opacity = '1'; });
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => toast.remove(), 300);
+    }, type === 'error' ? 5000 : 3000);
+}
+
 // Initialize app
 document.addEventListener('DOMContentLoaded', function() {
     initializeApp();
@@ -177,9 +223,11 @@ function initializeEventListeners() {
 }
 
 // API Functions
+let _tokenRefreshInProgress = false;
+
 async function apiCall(endpoint, options = {}) {
     const token = localStorage.getItem('token');
-    
+
     const config = {
         headers: {
             'Content-Type': 'application/json',
@@ -190,8 +238,27 @@ async function apiCall(endpoint, options = {}) {
 
     try {
         const response = await fetch(`${API_BASE}${endpoint}`, config);
-        
+
         if (response.status === 401) {
+            if (!_tokenRefreshInProgress && endpoint !== '/api/auth/refresh') {
+                _tokenRefreshInProgress = true;
+                try {
+                    const refreshResp = await fetch(`${API_BASE}/api/auth/refresh`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        }
+                    });
+                    if (refreshResp.ok) {
+                        const refreshData = await refreshResp.json();
+                        localStorage.setItem('token', refreshData.token);
+                        _tokenRefreshInProgress = false;
+                        return apiCall(endpoint, options);
+                    }
+                } catch (_) {}
+                _tokenRefreshInProgress = false;
+            }
             localStorage.removeItem('token');
             localStorage.removeItem('user');
             window.location.href = '/login.html';
@@ -199,7 +266,7 @@ async function apiCall(endpoint, options = {}) {
         }
 
         const data = await response.json();
-        
+
         if (!response.ok) {
             throw new Error(data.message || 'Erro na requisição');
         }
@@ -207,7 +274,7 @@ async function apiCall(endpoint, options = {}) {
         return data;
     } catch (error) {
         console.error('API Error:', error);
-        alert(error.message || 'Erro de conexão');
+        showToast(error.message || 'Erro de conexão', 'error');
         throw error;
     }
 }
@@ -249,7 +316,7 @@ async function addCategory() {
     const name = document.getElementById('newCategoryName').value.trim();
     
     if (!name) {
-        alert('Digite o nome da categoria');
+        showToast('Digite o nome da categoria', 'warning');
         return;
     }
 
@@ -401,7 +468,7 @@ function editTransaction(transactionId) {
     const transaction = transactions.find(t => t._id === transactionId);
     
     if (!transaction) {
-        alert('Transação não encontrada');
+        showToast('Transação não encontrada', 'error');
         return;
     }
 
@@ -528,7 +595,7 @@ function generateReport() {
     const reportType = document.getElementById('reportType').value;
     
     if (!startMonth || !endMonth) {
-        alert('Selecione o período do relatório');
+        showToast('Selecione o período do relatório', 'warning');
         return;
     }
     
@@ -775,7 +842,7 @@ async function exportData(format) {
         document.body.removeChild(a);
     } catch (error) {
         console.error('Erro ao exportar:', error);
-        alert('Erro ao exportar dados');
+        showToast('Erro ao exportar dados', 'error');
     }
 }
 
@@ -802,14 +869,14 @@ async function handleImport(event) {
             throw new Error(data.message || 'Erro ao importar dados');
         }
 
-        alert(`Importação concluída! ${data.imported} registros importados.`);
+        showToast(`Importação concluída! ${data.imported} registros importados.`, 'success');
         await loadTransactions();
         
         // Clear file input
         event.target.value = '';
     } catch (error) {
         console.error('Erro ao importar:', error);
-        alert(error.message || 'Erro ao importar dados');
+        showToast(error.message || 'Erro ao importar dados', 'error');
     }
 }
 
