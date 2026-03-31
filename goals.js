@@ -170,13 +170,13 @@ function createGoalCard(goal, isPreview = false) {
         <div class="goal-card ${isPreview ? 'goal-preview' : ''}">
             <div class="goal-header">
                 <div>
-                    <h3 class="goal-title">${goal.title}</h3>
+                    <h3 class="goal-title">${escapeHtml(goal.title)}</h3>
                     <span class="goal-type ${goal.goal_type}">${getGoalTypeLabel(goal.goal_type)}</span>
                 </div>
                 <span class="goal-status ${goal.status}">${getStatusLabel(goal.status)}</span>
             </div>
             
-            ${goal.description ? `<p class="goal-description">${goal.description}</p>` : ''}
+            ${goal.description ? `<p class="goal-description">${escapeHtml(goal.description)}</p>` : ''}
             
             <div class="goal-progress">
                 <div class="goal-amounts">
@@ -301,7 +301,7 @@ function updateProgress(goalId) {
     if (!goal) return;
 
     const newAmount = prompt(
-        `Atualizar progresso da meta "${goal.title}":\nValor atual: R$ ${formatCurrency(goal.current_amount || 0)}\nNovo valor:`,
+        `Atualizar progresso da meta "${escapeHtml(goal.title)}":\nValor atual: R$ ${formatCurrency(goal.current_amount || 0)}\nNovo valor:`,
         goal.current_amount || 0
     );
 
@@ -364,7 +364,7 @@ function checkGoalAlerts() {
             alerts.push({
                 type: 'success',
                 icon: '🎉',
-                message: `Parabéns! Você atingiu a meta "${goal.title}"!`
+                message: `Parabéns! Você atingiu a meta "${escapeHtml(goal.title)}"!`
             });
         }
         // Verifica se a meta está quase concluída (90% ou mais)
@@ -372,7 +372,7 @@ function checkGoalAlerts() {
             alerts.push({
                 type: 'warning',
                 icon: '🔥',
-                message: `Você está quase lá! Meta "${goal.title}" está ${progress.toFixed(1)}% concluída.`
+                message: `Você está quase lá! Meta "${escapeHtml(goal.title)}" está ${progress.toFixed(1)}% concluída.`
             });
         }
         // Verifica se a meta está vencida
@@ -380,7 +380,7 @@ function checkGoalAlerts() {
             alerts.push({
                 type: 'warning',
                 icon: '⏰',
-                message: `A meta "${goal.title}" está vencida há ${Math.abs(daysRemaining)} dias.`
+                message: `A meta "${escapeHtml(goal.title)}" está vencida há ${Math.abs(daysRemaining)} dias.`
             });
         }
         // Verifica se a meta está próxima do prazo
@@ -388,7 +388,7 @@ function checkGoalAlerts() {
             alerts.push({
                 type: 'warning',
                 icon: '⚠️',
-                message: `A meta "${goal.title}" vence em ${daysRemaining} dias.`
+                message: `A meta "${escapeHtml(goal.title)}" vence em ${daysRemaining} dias.`
             });
         }
     });
