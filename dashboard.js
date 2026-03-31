@@ -11,6 +11,16 @@ let charts = {};
 // API Base URL — usa a origem atual para funcionar em dev e produção
 const API_BASE = window.location.origin;
 
+// ── Proteção XSS — sempre usar em campos vindos da API antes de innerHTML ───
+function escapeHtml(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#x27;');
+}
 // =====================================================
 // KEEP-ALIVE MANAGER
 // Mantém a conexão ativa com o servidor e banco de dados
@@ -667,7 +677,7 @@ function updateAccountBalances() {
         if (account._id) {
             // Para cartões de crédito, o saldo é gerenciado pelo backend - NÃO recalcular!
             if (account.type === 'cartao') {
-                console.log(`ℹ️ Pulando recalculo para cartão de crédito: ${account.name}`);
+                console.log(`ℹ️ Pulando recalculo para cartão de crédito: ${escapeHtml(account.name)}`);
                 const balanceElement = document.querySelector(`[data-account-id="${account._id}"] .account-balance`);
                 if (balanceElement) {
                     balanceElement.textContent = `R$ ${formatCurrency(account.balance || 0)}`;
@@ -746,41 +756,8 @@ function updateTotalBalanceInOverview() {
     }
 }
 
-// Função para mostrar notificações
-function showNotification(message, type = 'info') {
-    const notification = document.createElement('div');
-    notification.className = `notification notification-${type}`;
-    notification.style.cssText = `
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        padding: 1rem 1.5rem;
-        background: ${type === 'success' ? 'var(--success, #10b981)' : 'var(--error, #ef4444)'};
-        color: white;
-        border-radius: 8px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-        z-index: 1000;
-        animation: slideIn 0.3s ease;
-    `;
-    notification.textContent = message;
 
-    document.body.appendChild(notification);
 
-    setTimeout(() => {
-        notification.style.animation = 'slideOut 0.3s ease';
-        setTimeout(() => notification.remove(), 300);
-    }, 3000);
-}
-
-async function loadGoals() {
-    try {
-        const data = await apiCall('/api/goals');
-        goals = data.goals || [];
-        displayGoals();
-    } catch (error) {
-        console.error('Erro ao carregar metas:', error);
-    }
-}
 
 // Update Selects
 function updateCategorySelects() {
@@ -1069,9 +1046,9 @@ function displayIncomes(filtered = incomes) {
         return `
             <tr class="${rowClass}">
                 <td>${formatMonth(income.month)}</td>
-                <td>${income.source}</td>
+                <td>${escapeHtml(income.source)}</td>
                 <td>R$ ${formatCurrency(income.amount)}</td>
-                <td>${accountName}</td>
+                <td>${escapeHtml(accountName)}</td>
                 <td>
                     <button onclick="editIncome('${income._id}')" class="btn-secondary" style="padding: 0.5rem 1rem; font-size: 0.875rem; margin-right: 0.5rem;">
                         Editar
@@ -1213,10 +1190,10 @@ function displayExpenses(filtered = transactions) {
         return `
             <tr>
                 <td>${formatMonth(transaction.month)}</td>
-                <td>${transaction.reason}</td>
+                <td>${escapeHtml(transaction.reason)}</td>
                 <td>R$ ${formatCurrency(transaction.expense || 0)}</td>
-                <td>${categoryName}</td>
-                <td>${accountName}</td>
+                <td>${escapeHtml(categoryName)}</td>
+                <td>${escapeHtml(accountName)}</td>
                 <td>
                     <button onclick="editExpense('${transaction._id}')" class="btn-secondary" style="padding: 0.5rem 1rem; font-size: 0.875rem; margin-right: 0.5rem;">
                         Editar
@@ -1562,7 +1539,7 @@ function displayBudgets(filtered = budgets) {
         return `
             <div class="budget-card">
                 <div class="budget-header">
-                    <h4>${categoryName}</h4>
+                    <h4>${escapeHtml(categoryName)}</h4>
                     <span class="budget-amount">R$ ${formatCurrency(budget.amount)}</span>
                 </div>
                 <div class="budget-progress">
@@ -1762,7 +1739,7 @@ function displayAccounts() {
                 <div class="account-balance ${isCreditCard ? 'credit-card-balance' : ''}">
                     ${isCreditCard ? 'Disponível: ' : ''}R$ ${formatCurrency(account.balance || 0)}
                 </div>
-                <div class="account-name">${account.name}</div>
+                <div class="account-name">${escapeHtml(account.name)}</div>
                 ${creditCardInfo}
                 <div class="account-actions">
                     <button onclick="editAccount('${account._id}')" class="btn-secondary" style="padding: 0.5rem 1rem; font-size: 0.875rem;">
@@ -1886,138 +1863,16 @@ async function deleteAccount(accountId) {
     }
 }
 
-// Goal Functions
-function displayGoals() {
-    const container = document.getElementById('goalsList');
 
-    if (goals.length === 0) {
-        container.innerHTML = '<p style="text-align: center; color: var(--text-secondary);">Nenhuma meta encontrada</p>';
-        return;
-    }
 
-    container.innerHTML = goals.map(goal => {
-        const percentage = (goal.current_amount / goal.target_amount) * 100;
-        const remaining = goal.target_amount - goal.current_amount;
-        const isCompleted = percentage >= 100;
 
-        let progressClass = '';
-        if (percentage >= 100) progressClass = 'success';
-        else if (percentage >= 70) progressClass = 'warning';
 
-        return `
-            <div class="goal-card">
-                <div class="goal-header">
-                    <h4>${goal.name}</h4>
-                    <span class="goal-status ${isCompleted ? 'completed' : 'active'}">
-                        ${isCompleted ? 'Concluída' : 'Ativa'}
-                    </span>
-                </div>
-                <div class="goal-amounts">
-                    <span class="goal-current">R$ ${formatCurrency(goal.current_amount || 0)}</span>
-                    <span class="goal-target">/ R$ ${formatCurrency(goal.target_amount)}</span>
-                </div>
-                <div class="goal-progress">
-                    <div class="progress-bar">
-                        <div class="progress-fill ${progressClass}" style="width: ${Math.min(percentage, 100)}%"></div>
-                    </div>
-                    <div class="progress-text">
-                        ${percentage.toFixed(1)}% alcançado
-                        ${!isCompleted ? `<br>Faltam: R$ ${formatCurrency(remaining)}` : ''}
-                    </div>
-                </div>
-                <div class="goal-deadline">
-                    Prazo: ${formatMonth(goal.deadline)}
-                </div>
-                <div class="goal-actions">
-                    <button onclick="editGoal('${goal._id}')" class="btn-secondary" style="padding: 0.5rem 1rem; font-size: 0.875rem;">
-                        Editar
-                    </button>
-                    <button onclick="deleteGoal('${goal._id}')" class="btn-danger">
-                        Excluir
-                    </button>
-                </div>
-            </div>
-        `;
-    }).join('');
-}
 
-function openGoalModal(goal = null) {
-    const modal = document.getElementById('goalModal');
-    const form = document.getElementById('goalForm');
 
-    form.reset();
 
-    if (goal) {
-        document.getElementById('goalModalTitle').textContent = 'Editar Meta';
-        document.getElementById('goalId').value = goal._id;
-        document.getElementById('goalName').value = goal.name;
-        document.getElementById('goalTarget').value = goal.target_amount;
-        document.getElementById('goalCurrent').value = goal.current_amount || 0;
-        document.getElementById('goalDeadline').value = goal.deadline;
-    } else {
-        document.getElementById('goalModalTitle').textContent = 'Nova Meta';
-    }
 
-    modal.style.display = 'block';
-}
 
-function closeGoalModal() {
-    document.getElementById('goalModal').style.display = 'none';
-}
 
-async function saveGoal(event) {
-    event.preventDefault();
-
-    const goalId = document.getElementById('goalId').value;
-    const goalData = {
-        name: document.getElementById('goalName').value,
-        target_amount: parseFloat(document.getElementById('goalTarget').value),
-        current_amount: parseFloat(document.getElementById('goalCurrent').value),
-        deadline: document.getElementById('goalDeadline').value
-    };
-
-    try {
-        if (goalId) {
-            await apiCall(`/api/goals/${goalId}`, {
-                method: 'PUT',
-                body: JSON.stringify(goalData)
-            });
-        } else {
-            await apiCall('/api/goals', {
-                method: 'POST',
-                body: JSON.stringify(goalData)
-            });
-        }
-
-        closeGoalModal();
-        await loadGoals();
-    } catch (error) {
-        console.error('Erro ao salvar meta:', error);
-    }
-}
-
-function editGoal(goalId) {
-    const goal = goals.find(g => g._id === goalId);
-    if (goal) {
-        openGoalModal(goal);
-    }
-}
-
-async function deleteGoal(goalId) {
-    if (!confirm('Tem certeza que deseja excluir esta meta?')) {
-        return;
-    }
-
-    try {
-        await apiCall(`/api/goals/${goalId}`, {
-            method: 'DELETE'
-        });
-
-        await loadGoals();
-    } catch (error) {
-        console.error('Erro ao excluir meta:', error);
-    }
-}
 
 // Category Functions
 function displayCategories() {
@@ -2037,12 +1892,12 @@ function displayCategories() {
         return `
             <div class="category-card">
                 <div class="category-header">
-                    <h4>${category.name}</h4>
+                    <h4>${escapeHtml(category.name)}</h4>
                     <div class="category-actions">
-                        <button onclick="editCategory('${category._id}')" class="btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">
+                        <button onclick="editCategory('${escapeHtml(category._id)}')" class="btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;">
                             Editar
                         </button>
-                        <button onclick="deleteCategory('${category._id}')" class="btn-danger" ${totalUsage > 0 ? 'disabled title="Categoria em uso"' : ''}>
+                        <button onclick="deleteCategory('${escapeHtml(category._id)}')" class="btn-danger" ${totalUsage > 0 ? 'disabled title="Categoria em uso"' : ''}>
                             Excluir
                         </button>
                     </div>
@@ -2590,7 +2445,7 @@ function openTransferModal() {
     };
 
     accounts.forEach(account => {
-        const label = `${account.name} (${typeLabels[account.type] || account.type}) — R$ ${formatCurrency(account.balance || 0)}`;
+        const label = `${escapeHtml(account.name)} (${typeLabels[account.type] || account.type}) — R$ ${formatCurrency(account.balance || 0)}`;
         const optFrom = new Option(label, account._id);
         const optTo = new Option(label, account._id);
         fromSelect.appendChild(optFrom);
@@ -2688,12 +2543,12 @@ async function openTransferHistoryModal() {
             <div class="transfer-history-item">
                 <div class="transfer-history-info">
                     <div class="transfer-history-accounts">
-                        <span class="transfer-from">${t.from_account_name || 'Conta'}</span>
+                        <span class="transfer-from">${escapeHtml(t.from_account_name || 'Conta')}</span>
                         <span class="transfer-arrow">→</span>
-                        <span class="transfer-to">${t.to_account_name || 'Conta'}</span>
+                        <span class="transfer-to">${escapeHtml(t.to_account_name || 'Conta')}</span>
                     </div>
                     <div class="transfer-history-details">
-                        <span class="transfer-description">${t.description || 'Transferência'}</span>
+                        <span class="transfer-description">${escapeHtml(t.description || 'Transferência')}</span>
                         <span class="transfer-date">${t.date || ''}</span>
                     </div>
                 </div>
