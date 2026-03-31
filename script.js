@@ -8,6 +8,16 @@ let currentPage = 'dashboard';
 // API Base URL
 const API_BASE = window.location.origin;
 
+// ── Proteção XSS ─────────────────────────────────────────────────────────────
+function escapeHtml(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#x27;');
+}
 // ── Toast de notificação (substitui alert() bloqueante) ──────────────────────
 function showToast(message, type = 'info') {
     // Remove toast anterior se existir
@@ -357,8 +367,8 @@ function displayCategories() {
     
     categoriesList.innerHTML = categories.map(category => `
         <div class="category-item">
-            <span class="category-name">${category.name}</span>
-            <button onclick="deleteCategory('${category._id}')" class="btn-danger" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">
+            <span class="category-name">${escapeHtml(category.name)}</span>
+            <button onclick="deleteCategory('${escapeHtml(category._id)}')" class="btn-danger" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">
                 Excluir
             </button>
         </div>
@@ -393,10 +403,10 @@ function displayTransactions(filteredTransactions = transactions) {
         return `
             <tr>
                 <td>${formatMonth(transaction.month)}</td>
-                <td>${transaction.reason}</td>
+                <td>${escapeHtml(transaction.reason)}</td>
                 <td>R$ ${formatCurrency(transaction.expense || 0)}</td>
                 <td>R$ ${formatCurrency(transaction.current_value || 0)}</td>
-                <td>${categoryName}</td>
+                <td>${escapeHtml(categoryName)}</td>
                 <td>R$ ${formatCurrency(transaction.income || 0)}</td>
                 <td>
                     <button onclick="editTransaction('${transaction._id}')" class="btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; margin-right: 0.5rem;">
@@ -794,7 +804,7 @@ function generateGoalsReport(container) {
                 <tbody>
                     ${goals.map(goal => `
                         <tr>
-                            <td>${goal.title}</td>
+                            <td>${escapeHtml(goal.title)}</td>
                             <td>${getGoalTypeLabel(goal.goal_type)}</td>
                             <td>
                                 <div style="display: flex; align-items: center; gap: 0.5rem;">
