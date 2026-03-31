@@ -1,6 +1,9 @@
-from flask import Flask, request, jsonify, send_file, render_template_string
+from flask import Flask, request, jsonify, send_file, render_template_string, send_from_directory
 from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
 from functools import wraps
 import jwt
 import pymongo
@@ -8,6 +11,7 @@ from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError, AutoReconnect
 from bson import ObjectId
 import os
+import calendar
 from datetime import datetime, timedelta
 import pandas as pd
 import io
@@ -21,9 +25,47 @@ from reportlab.lib import colors
 import json
 
 app = Flask(__name__)
-# Configuration
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
-CORS(app, origins=["*"])
+
+# =====================================================
+# CONFIGURAÇÃO SEGURA
+# =====================================================
+
+# SECRET_KEY obrigatória — falha ruidosa em produção se não configurada
+_secret_key = os.environ.get('SECRET_KEY')
+if not _secret_key:
+    import sys
+    if os.environ.get('FLASK_ENV') == 'production' or os.environ.get('RENDER'):
+        raise RuntimeError(
+            "SECRET_KEY não configurada! "
+            "Defina a variável de ambiente SECRET_KEY antes de iniciar em produção."
+        )
+    # Em desenvolvimento local, usa um valor fixo com aviso
+    _secret_key = 'dev-only-key-NOT-for-production'
+    print("⚠️  AVISO: SECRET_KEY não definida. Usando chave de desenvolvimento. NÃO use em produção!")
+
+app.config['SECRET_KEY'] = _secret_key
+
+# Limite de upload: 10 MB
+app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024
+
+# CORS restrito às origens conhecidas
+_allowed_origins = os.environ.get(
+    'ALLOWED_ORIGINS',
+    'https://projeto-financeiro-c8sb.onrender.com'
+).split(',')
+# Em desenvolvimento local, permite também localhost
+if not os.environ.get('RENDER'):
+    _allowed_origins += ['http://localhost:5000', 'http://127.0.0.1:5000']
+
+CORS(app, origins=_allowed_origins, supports_credentials=True)
+
+# Rate limiter — proteção contra força bruta
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=[],
+    storage_uri="memory://"
+)
 
 # MongoDB Configuration
 MONGODB_URI = os.environ.get('MONGODB_URI')
@@ -179,7 +221,23 @@ class MongoDBConnectionManager:
 # Inicializa o gerenciador de conexões
 db_manager = MongoDBConnectionManager()
 
-# Atribui variáveis globais para compatibilidade
+# =====================================================
+# ACESSORES DE COLEÇÕES — sempre frescos após reconexão
+# Nunca use variáveis globais diretas; use estas funções
+# para garantir que a coleção aponta para a conexão atual.
+# =====================================================
+
+def get_db():
+    return db_manager.db
+
+def get_col(name):
+    """Retorna a coleção pelo nome, ou None se sem MongoDB."""
+    d = db_manager.db
+    return d[name] if d is not None else None
+
+# Mantidos para retrocompatibilidade com código legado, mas
+# agora são propriedades dinâmicas via funções acima.
+# NÃO adicione novas referências a estas variáveis — use get_col().
 db = db_manager.db
 users_collection = db.users if db is not None else None
 transactions_collection = db.transactions if db is not None else None
@@ -215,31 +273,28 @@ def with_connection_retry(max_retries=3, delay=0.5):
         @wraps(f)
         def decorated_function(*args, **kwargs):
             last_exception = None
-            
+
             for attempt in range(max_retries):
                 try:
                     result = f(*args, **kwargs)
-                    # Atualiza atividade após operação bem-sucedida
                     db_manager.update_activity()
                     return result
-                    
+
                 except (AutoReconnect, ConnectionFailure, ServerSelectionTimeoutError) as e:
                     last_exception = e
                     print(f"⚠️ Tentativa {attempt + 1}/{max_retries} falhou: {e}")
-                    
+
                     if attempt < max_retries - 1:
-                        # Espera exponencial antes de retry
                         wait_time = delay * (2 ** attempt)
                         time.sleep(wait_time)
-                        
-                        # Força reconexão
+
                         try:
                             db_manager._reconnect()
-                            # Atualiza referências globais
                             global db, users_collection, transactions_collection
                             global categories_collection, incomes_collection, budgets_collection
                             global accounts_collection, goals_collection, credit_card_resets_collection
-                            
+                            global transfers_collection
+
                             db = db_manager.db
                             if db is not None:
                                 users_collection = db.users
@@ -250,12 +305,13 @@ def with_connection_retry(max_retries=3, delay=0.5):
                                 accounts_collection = db.accounts
                                 goals_collection = db.goals
                                 credit_card_resets_collection = db.credit_card_resets
+                                transfers_collection = db.transfers
                         except Exception:
                             pass
                     else:
                         print("❌ Todas as tentativas de reconexão falharam")
                         raise
-            
+
             raise last_exception
         return decorated_function
     return decorator
@@ -456,16 +512,32 @@ def recalculate_account_balance(user_id, account_id):
 # =====================================================
 
 def check_and_reset_credit_cards(user_id):
-    today = datetime.utcnow().day
+    now = datetime.utcnow()
+    today = now.day
+    # Número de dias do mês atual
+    days_in_month = calendar.monthrange(now.year, now.month)[1]
     reset_cards = []
 
     try:
         if db_manager.db is not None:
+            # Inclui cartões cujo closing_day é today OU cujo closing_day
+            # ultrapassa o número de dias do mês (ex: dia 31 em fevereiro
+            # dispara no último dia do mês).
             credit_cards = list(accounts_collection.find({
                 'user_id': user_id,
                 'type': 'cartao',
-                'closing_day': today
+                '$or': [
+                    {'closing_day': today},
+                    {'closing_day': {'$gt': days_in_month}, 'closing_day': {'$gte': today},
+                     '$expr': {'$eq': [today, days_in_month]}}
+                ]
             }))
+            # Forma mais simples e legível: filtrar em Python após trazer todos os cartões do usuário
+            all_cards = list(accounts_collection.find({'user_id': user_id, 'type': 'cartao'}))
+            credit_cards = [
+                c for c in all_cards
+                if min(c.get('closing_day', 1), days_in_month) == today
+            ]
 
             for card in credit_cards:
                 last_reset = card.get('last_reset_date')
@@ -727,6 +799,7 @@ def index():
 
 # Authentication Routes
 @app.route('/api/auth/register', methods=['POST'])
+@limiter.limit("5 per minute; 20 per hour")
 @with_connection_retry(max_retries=3)
 def register():
     data = request.get_json()
@@ -799,6 +872,7 @@ def register():
     return jsonify({'message': 'Usuário cadastrado com sucesso'}), 201
 
 @app.route('/api/auth/login', methods=['POST'])
+@limiter.limit("10 per minute; 30 per hour")
 @with_connection_retry(max_retries=3)
 def login():
     data = request.get_json()
@@ -827,6 +901,18 @@ def login():
             'email': user['email']
         }
     })
+
+
+@app.route('/api/auth/refresh', methods=['POST'])
+@token_required
+def refresh_token(current_user):
+    """Renova o token JWT sem exigir login novamente."""
+    new_token = jwt.encode({
+        'user_id': str(current_user['_id']),
+        'exp': datetime.utcnow() + timedelta(days=7)
+    }, app.config['SECRET_KEY'], algorithm='HS256')
+
+    return jsonify({'token': new_token})
 
 # Categories Routes
 @app.route('/api/categories', methods=['GET'])
@@ -1041,51 +1127,72 @@ def update_transaction(current_user, transaction_id):
     data = request.get_json()
     user_id = str(current_user['_id'])
 
+    # ── 1. Buscar a transação ANTES de modificar ────────────────────────────
+    if db_manager.db is not None:
+        original = transactions_collection.find_one(
+            {'_id': ObjectId(transaction_id), 'user_id': user_id}
+        )
+    else:
+        original = next((t for t in memory_storage['transactions']
+                         if t['_id'] == transaction_id and t['user_id'] == user_id), None)
+
+    if not original:
+        return jsonify({'message': 'Transação não encontrada'}), 404
+
+    # ── 2. Montar os dados de atualização ──────────────────────────────────
     update_data = {}
     for field in ['month', 'reason', 'expense', 'current_value', 'category_id', 'income', 'account_id']:
         if field in data:
-            if field in ['expense', 'current_value', 'income']:
-                update_data[field] = float(data[field])
-            else:
-                update_data[field] = data[field]
+            update_data[field] = float(data[field]) if field in ['expense', 'current_value', 'income'] else data[field]
 
     update_data['updated_at'] = datetime.utcnow()
 
+    # ── 3. Aplicar atualização no banco ────────────────────────────────────
     if db_manager.db is not None:
-        result = transactions_collection.update_one(
+        transactions_collection.update_one(
             {'_id': ObjectId(transaction_id), 'user_id': user_id},
             {'$set': update_data}
         )
-
-        if result.matched_count == 0:
-            return jsonify({'message': 'Transação não encontrada'}), 404
     else:
-        transaction = next((t for t in memory_storage['transactions']
-                          if t['_id'] == transaction_id and t['user_id'] == user_id), None)
+        original.update(update_data)
 
-        if not transaction:
-            return jsonify({'message': 'Transação não encontrada'}), 404
+    # ── 4. Corrigir saldos quando valores financeiros ou conta mudam ───────
+    fields_changed = {'account_id', 'expense', 'income'} & set(update_data.keys())
+    if fields_changed:
+        old_account_id = original.get('account_id')
+        new_account_id = update_data.get('account_id', old_account_id)
+        account_changed = 'account_id' in update_data and new_account_id != old_account_id
 
-        transaction.update(update_data)
+        old_expense = original.get('expense', 0)
+        old_income  = original.get('income', 0)
+        new_expense = update_data.get('expense', old_expense)
+        new_income  = update_data.get('income', old_income)
 
-    if ('account_id' in update_data or 'expense' in update_data or 'income' in update_data):
-        account_id = update_data.get('account_id')
-        if account_id:
-            # Verificar se a conta é um cartão de crédito antes de recalcular
+        def _is_credit_card(acc_id):
+            if not acc_id:
+                return False
             if db_manager.db is not None:
-                account = accounts_collection.find_one({
-                    '_id': ObjectId(account_id),
-                    'user_id': user_id
-                })
+                acc = accounts_collection.find_one({'_id': ObjectId(acc_id), 'user_id': user_id})
             else:
-                account = next((a for a in memory_storage['accounts']
-                               if a['_id'] == account_id and a['user_id'] == user_id), None)
-            
-            # Se for cartão de crédito, não recalcular
-            if account and account.get('type') == 'cartao':
-                print(f"ℹ️ Pulando recalculo para cartão de crédito ao editar transação")
-            else:
-                recalculate_account_balance(user_id, account_id)
+                acc = next((a for a in memory_storage['accounts']
+                            if a['_id'] == acc_id and a['user_id'] == user_id), None)
+            return acc.get('type') == 'cartao' if acc else False
+
+        if account_changed:
+            # Revert the old account (undo the original transaction)
+            if old_account_id and not _is_credit_card(old_account_id):
+                revert_change = -(old_income - old_expense)
+                update_account_balance(user_id, old_account_id, revert_change)
+            # Apply the new values to the new account
+            if new_account_id and not _is_credit_card(new_account_id):
+                apply_change = new_income - new_expense
+                update_account_balance(user_id, new_account_id, apply_change)
+        else:
+            # Same account — apply the diff between old and new values
+            if new_account_id and not _is_credit_card(new_account_id):
+                diff = (new_income - new_expense) - (old_income - old_expense)
+                if diff != 0:
+                    update_account_balance(user_id, new_account_id, diff)
 
     return jsonify({'message': 'Transação atualizada com sucesso'})
 
@@ -1187,85 +1294,69 @@ def update_income(current_user, income_id):
     data = request.get_json()
     user_id = str(current_user['_id'])
 
+    # ── 1. Buscar receita original ANTES de modificar ──────────────────────
+    if db_manager.db is not None:
+        original = incomes_collection.find_one(
+            {'_id': ObjectId(income_id), 'user_id': user_id}
+        )
+    else:
+        original = next((i for i in memory_storage['incomes']
+                         if i['_id'] == income_id and i['user_id'] == user_id), None)
+
+    if not original:
+        return jsonify({'message': 'Receita não encontrada'}), 404
+
+    # ── 2. Montar os dados de atualização ──────────────────────────────────
     update_data = {}
     for field in ['month', 'source', 'amount', 'account_id']:
         if field in data:
-            if field == 'amount':
-                update_data[field] = float(data[field])
-            else:
-                update_data[field] = data[field]
+            update_data[field] = float(data[field]) if field == 'amount' else data[field]
 
     update_data['updated_at'] = datetime.utcnow()
 
+    # ── 3. Persistir ───────────────────────────────────────────────────────
     if db_manager.db is not None:
-        result = incomes_collection.update_one(
+        incomes_collection.update_one(
             {'_id': ObjectId(income_id), 'user_id': user_id},
             {'$set': update_data}
         )
-
-        if result.matched_count == 0:
-            return jsonify({'message': 'Receita não encontrada'}), 404
     else:
-        income = next((i for i in memory_storage['incomes']
-                      if i['_id'] == income_id and i['user_id'] == user_id), None)
+        original.update(update_data)
 
-        if not income:
-            return jsonify({'message': 'Receita não encontrada'}), 404
+    # ── 4. Corrigir saldos ────────────────────────────────────────────────
+    fields_changed = {'account_id', 'amount'} & set(update_data.keys())
+    if not fields_changed:
+        return jsonify({'message': 'Receita atualizada com sucesso'})
 
-        income.update(update_data)
+    old_account_id = original.get('account_id')
+    new_account_id = update_data.get('account_id', old_account_id)
+    old_amount     = original.get('amount', 0)
+    new_amount     = update_data.get('amount', old_amount)
+    account_changed = 'account_id' in update_data and new_account_id != old_account_id
 
-    if 'account_id' in update_data or 'amount' in update_data:
-        if 'account_id' in update_data and 'amount' in update_data:
-            account_id = update_data['account_id']
-            if account_id:
-                # Verificar se é cartão de crédito
-                if db_manager.db is not None:
-                    account = accounts_collection.find_one({
-                        '_id': ObjectId(account_id),
-                        'user_id': user_id
-                    })
-                else:
-                    account = next((a for a in memory_storage['accounts']
-                                   if a['_id'] == account_id and a['user_id'] == user_id), None)
-                
-                if account and account.get('type') == 'cartao':
-                    print(f"ℹ️ Pulando recalculo para cartão de crédito ao atualizar receita")
-                else:
-                    recalculate_account_balance(user_id, account_id)
-        elif 'amount' in update_data:
-            account_id = update_data.get('account_id')
-            if account_id:
-                # Verificar se é cartão de crédito
-                if db_manager.db is not None:
-                    account = accounts_collection.find_one({
-                        '_id': ObjectId(account_id),
-                        'user_id': user_id
-                    })
-                else:
-                    account = next((a for a in memory_storage['accounts']
-                                   if a['_id'] == account_id and a['user_id'] == user_id), None)
-                
-                if account and account.get('type') == 'cartao':
-                    print(f"ℹ️ Pulando recalculo para cartão de crédito ao atualizar receita")
-                else:
-                    recalculate_account_balance(user_id, account_id)
-        elif 'account_id' in update_data:
-            new_account_id = update_data['account_id']
-            if new_account_id:
-                # Verificar se é cartão de crédito
-                if db_manager.db is not None:
-                    account = accounts_collection.find_one({
-                        '_id': ObjectId(new_account_id),
-                        'user_id': user_id
-                    })
-                else:
-                    account = next((a for a in memory_storage['accounts']
-                                   if a['_id'] == new_account_id and a['user_id'] == user_id), None)
-                
-                if account and account.get('type') == 'cartao':
-                    print(f"ℹ️ Pulando recalculo para cartão de crédito ao atualizar receita")
-                else:
-                    recalculate_account_balance(user_id, new_account_id)
+    def _is_credit_card(acc_id):
+        if not acc_id:
+            return False
+        if db_manager.db is not None:
+            acc = accounts_collection.find_one({'_id': ObjectId(acc_id), 'user_id': user_id})
+        else:
+            acc = next((a for a in memory_storage['accounts']
+                        if a['_id'] == acc_id and a['user_id'] == user_id), None)
+        return acc.get('type') == 'cartao' if acc else False
+
+    if account_changed:
+        # Desfaz o valor antigo na conta antiga
+        if old_account_id and not _is_credit_card(old_account_id):
+            update_account_balance(user_id, old_account_id, -old_amount)
+        # Aplica o novo valor na nova conta
+        if new_account_id and not _is_credit_card(new_account_id):
+            update_account_balance(user_id, new_account_id, new_amount)
+    elif 'amount' in update_data and old_account_id:
+        # Mesma conta, apenas valor mudou — aplica a diferença
+        if not _is_credit_card(old_account_id):
+            diff = new_amount - old_amount
+            if diff != 0:
+                update_account_balance(user_id, old_account_id, diff)
 
     return jsonify({'message': 'Receita atualizada com sucesso'})
 
@@ -1867,24 +1958,27 @@ def delete_goal(current_user, goal_id):
 
 # Statistics Route
 @app.route('/api/stats')
+@token_required
 @with_connection_retry(max_retries=3)
-def get_stats():
+def get_stats(current_user):
+    user_id = str(current_user['_id'])
+
     if db_manager.db is not None:
-        total_users = users_collection.count_documents({})
-        total_transactions = transactions_collection.count_documents({})
-        total_categories = categories_collection.count_documents({})
+        total_transactions = transactions_collection.count_documents({'user_id': user_id})
+        total_categories = categories_collection.count_documents({'user_id': user_id})
+        total_accounts = accounts_collection.count_documents({'user_id': user_id})
     else:
-        total_users = len(memory_storage['users'])
-        total_transactions = len(memory_storage['transactions'])
-        total_categories = len(memory_storage['categories'])
+        total_transactions = len([t for t in memory_storage['transactions'] if t['user_id'] == user_id])
+        total_categories = len([c for c in memory_storage['categories'] if c['user_id'] == user_id])
+        total_accounts = len([a for a in memory_storage['accounts'] if a['user_id'] == user_id])
 
     return jsonify({
         'status': 'online',
         'database': 'MongoDB Atlas' if db_manager.db is not None else 'Memory Storage',
-        'total_users': total_users,
         'total_transactions': total_transactions,
         'total_categories': total_categories,
-        'version': '2.2.0'  # Versão atualizada com reconexão automática
+        'total_accounts': total_accounts,
+        'version': '2.3.0'
     })
 
 # =====================================================
@@ -2105,15 +2199,20 @@ def import_data(current_user):
     if file.filename == '':
         return jsonify({'message': 'Nenhum arquivo selecionado'}), 400
 
+    # Sanitiza o nome e valida a extensão
+    safe_name = secure_filename(file.filename)
+    _, ext = os.path.splitext(safe_name)
+    ext = ext.lower()
+    if ext not in ('.csv', '.xlsx'):
+        return jsonify({'message': 'Formato não suportado. Use .csv ou .xlsx'}), 400
+
     user_id = str(current_user['_id'])
 
     try:
-        if file.filename.endswith('.csv'):
+        if ext == '.csv':
             df = pd.read_csv(file)
-        elif file.filename.endswith('.xlsx'):
-            df = pd.read_excel(file)
         else:
-            return jsonify({'message': 'Formato de arquivo não suportado'}), 400
+            df = pd.read_excel(file)
 
         if db_manager.db is not None:
             categories = list(categories_collection.find({'user_id': user_id}))
@@ -2180,20 +2279,23 @@ def import_data(current_user):
 # Static files serving
 @app.route('/<path:filename>')
 def serve_static(filename):
+    """
+    Serve arquivos estáticos de forma segura.
+    send_from_directory normaliza o caminho e rejeita traversal (../).
+    Apenas extensões permitidas são servidas.
+    """
+    ALLOWED_EXTENSIONS = {'.html', '.css', '.js', '.ico', '.png', '.jpg', '.svg', '.webp'}
+    base_dir = os.path.abspath(os.path.dirname(__file__))
+
+    # Rejeita extensões não permitidas antes mesmo de tocar no disco
+    _, ext = os.path.splitext(filename)
+    if ext.lower() not in ALLOWED_EXTENSIONS:
+        return "Not found", 404
+
     try:
-        if filename.endswith('.html'):
-            with open(filename, 'r', encoding='utf-8') as f:
-                return f.read()
-        elif filename.endswith('.css'):
-            with open(filename, 'r', encoding='utf-8') as f:
-                return f.read(), 200, {'Content-Type': 'text/css'}
-        elif filename.endswith('.js'):
-            with open(filename, 'r', encoding='utf-8') as f:
-                return f.read(), 200, {'Content-Type': 'application/javascript'}
-        else:
-            return "File not found", 404
-    except FileNotFoundError:
-        return "File not found", 404
+        return send_from_directory(base_dir, filename)
+    except Exception:
+        return "Not found", 404
 
 # Health check endpoint
 @app.route('/health')
