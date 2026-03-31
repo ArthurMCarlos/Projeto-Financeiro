@@ -8,8 +8,8 @@ let accounts = [];
 let goals = [];
 let charts = {};
 
-// API Base URL
-const API_BASE = "https://projeto-financeiro-c8sb.onrender.com";
+// API Base URL — usa a origem atual para funcionar em dev e produção
+const API_BASE = window.location.origin;
 
 // =====================================================
 // KEEP-ALIVE MANAGER
@@ -443,6 +443,9 @@ function navigateToPage(page) {
 }
 
 // API Functions
+// Controla se já tentamos renovar o token nesta sessão (evita loop)
+let _tokenRefreshInProgress = false;
+
 async function apiCall(endpoint, options = {}) {
     const token = localStorage.getItem('token');
 
@@ -458,6 +461,28 @@ async function apiCall(endpoint, options = {}) {
         const response = await fetch(`${API_BASE}${endpoint}`, config);
 
         if (response.status === 401) {
+            // Tenta renovar o token silenciosamente antes de deslogar
+            if (!_tokenRefreshInProgress && endpoint !== '/api/auth/refresh') {
+                _tokenRefreshInProgress = true;
+                try {
+                    const refreshResp = await fetch(`${API_BASE}/api/auth/refresh`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        }
+                    });
+                    if (refreshResp.ok) {
+                        const refreshData = await refreshResp.json();
+                        localStorage.setItem('token', refreshData.token);
+                        _tokenRefreshInProgress = false;
+                        // Retenta a requisição original com o novo token
+                        return apiCall(endpoint, options);
+                    }
+                } catch (_) {}
+                _tokenRefreshInProgress = false;
+            }
+            // Refresh falhou — redireciona para login
             localStorage.removeItem('token');
             localStorage.removeItem('user');
             window.location.href = '/login.html';
@@ -2124,7 +2149,7 @@ async function compareMonths() {
     const month2 = document.getElementById('compareMonth2').value;
 
     if (!month1 || !month2) {
-        alert('Selecione dois meses para comparar');
+        showToast('Selecione dois meses para comparar', 'warning');
         return;
     }
 
@@ -2483,7 +2508,7 @@ async function exportData(format) {
         document.body.removeChild(a);
     } catch (error) {
         console.error('Erro ao exportar:', error);
-        alert('Erro ao exportar dados');
+        showToast('Erro ao exportar dados', 'error');
     }
 }
 
