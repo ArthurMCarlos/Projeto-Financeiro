@@ -420,9 +420,10 @@ function initializeEventListeners() {
     document.getElementById('addAccountBtn').addEventListener('click', () => openAccountModal());
     document.getElementById('accountForm').addEventListener('submit', saveAccount);
 
-    // Goal events
-    document.getElementById('addGoalBtn').addEventListener('click', () => openGoalModal());
-    document.getElementById('goalForm').addEventListener('submit', saveGoal);
+    // Goal events — delegated to goals.js to avoid duplicate listeners
+    if (typeof initializeGoalEventListeners === 'function') {
+        initializeGoalEventListeners();
+    }
 
     // Category events
     document.getElementById('addCategoryBtn').addEventListener('click', () => openCategoryModal());
