@@ -165,23 +165,34 @@ async function initializeApp() {
     initializeCharts();
 }
 
-function initializeTheme() {
-    const themeToggle = document.getElementById('themeToggle');
-    const body = document.body;
+function toggleTheme() {
+    const body       = document.body;
+    const current    = body.getAttribute('data-theme') || 'light';
+    const next       = current === 'dark' ? 'light' : 'dark';
+    const icon       = next === 'dark' ? '☀️' : '🌙';
 
-    const savedTheme = localStorage.getItem('theme') || 'light';
-    body.setAttribute('data-theme', savedTheme);
-    themeToggle.textContent = savedTheme === 'dark' ? '☀️' : '🌙';
+    body.setAttribute('data-theme', next);
+    localStorage.setItem('theme', next);
 
-    themeToggle.addEventListener('click', () => {
-        const currentTheme = body.getAttribute('data-theme');
-        const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-        body.setAttribute('data-theme', newTheme);
-        localStorage.setItem('theme', newTheme);
-        themeToggle.textContent = newTheme === 'dark' ? '☀️' : '🌙';
-        updateChartsTheme();
-    });
+    const btn1 = document.getElementById('themeToggle');
+    const btn2 = document.getElementById('themeToggleMobile');
+    if (btn1) btn1.textContent = icon;
+    if (btn2) btn2.textContent = icon;
+
+    updateChartsTheme();
 }
+
+function initializeTheme() {
+    const savedTheme = localStorage.getItem('theme') || 'light';
+    document.body.setAttribute('data-theme', savedTheme);
+    const icon = savedTheme === 'dark' ? '☀️' : '🌙';
+
+    const btn1 = document.getElementById('themeToggle');
+    const btn2 = document.getElementById('themeToggleMobile');
+    if (btn1) { btn1.textContent = icon; btn1.addEventListener('click', toggleTheme); }
+    if (btn2) { btn2.textContent = icon; btn2.addEventListener('click', toggleTheme); }
+}
+
 
 // =====================================================
 // FUNÇÕES DE CARTÃO DE CRÉDITO
@@ -342,20 +353,39 @@ function initializeEventListeners() {
     // Logout
     document.getElementById('logoutBtn').addEventListener('click', logout);
 
-    // Menu toggle for mobile
+    // ── Mobile navigation ──────────────────────────────────────────────────
+    // Sidebar toggle (hamburger button in header)
     const menuToggle = document.getElementById('menuToggle');
-    if (menuToggle) {
-        menuToggle.addEventListener('click', () => {
-            document.querySelector('.sidebar').classList.toggle('open');
-        });
-    }
+    if (menuToggle) menuToggle.addEventListener('click', toggleSidebar);
 
-    // Navigation
+    // Theme toggle (mobile header button mirrors sidebar button)
+    const themeToggleMobile = document.getElementById('themeToggleMobile');
+    if (themeToggleMobile) themeToggleMobile.addEventListener('click', toggleTheme);
+
+    // Bottom nav buttons
+    document.querySelectorAll('.bottom-nav-item').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const page = btn.dataset.page;
+            if (page === 'more') {
+                toggleSidebar(); // "Mais" opens sidebar with all pages
+            } else {
+                navigateToPage(page);
+            }
+        });
+    });
+
+    // Close sidebar when clicking outside (overlay click already handled inline)
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') closeSidebar();
+    });
+
+    // Navigation (sidebar items)
     document.querySelectorAll('.nav-item').forEach(item => {
         item.addEventListener('click', (e) => {
             e.preventDefault();
             const page = item.dataset.page;
             navigateToPage(page);
+            closeSidebar(); // auto-close on mobile after navigation
         });
     });
 
@@ -418,38 +448,57 @@ function initializeEventListeners() {
 
 // Navigation
 function navigateToPage(page) {
-    // Update active nav item
-    document.querySelectorAll('.nav-item').forEach(item => {
-        item.classList.remove('active');
-    });
-    document.querySelector(`[data-page="${page}"]`).classList.add('active');
+    // Update active sidebar nav item
+    document.querySelectorAll('.nav-item').forEach(item => item.classList.remove('active'));
+    const activeNav = document.querySelector(`.nav-item[data-page="${page}"]`);
+    if (activeNav) activeNav.classList.add('active');
+
+    // Update active bottom nav item
+    document.querySelectorAll('.bottom-nav-item').forEach(btn => btn.classList.remove('active'));
+    const activeBn = document.querySelector(`.bottom-nav-item[data-page="${page}"]`);
+    if (activeBn) activeBn.classList.add('active');
 
     // Update active page
-    document.querySelectorAll('.page').forEach(p => {
-        p.classList.remove('active');
-    });
-    document.getElementById(`${page}-page`).classList.add('active');
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    const pageEl = document.getElementById(`${page}-page`);
+    if (pageEl) pageEl.classList.add('active');
 
     // Update page title
     const titles = {
-        'overview': 'Visão Geral',
-        'incomes': 'Receitas',
-        'expenses': 'Despesas',
-        'budgets': 'Orçamentos',
-        'accounts': 'Contas',
-        'goals': 'Metas',
+        'overview':   'Visão Geral',
+        'incomes':    'Receitas',
+        'expenses':   'Despesas',
+        'budgets':    'Orçamentos',
+        'accounts':   'Contas',
+        'goals':      'Metas',
         'categories': 'Categorias',
-        'reports': 'Relatórios'
+        'reports':    'Relatórios'
     };
-    document.getElementById('pageTitle').textContent = titles[page];
+    document.getElementById('pageTitle').textContent = titles[page] || page;
 
     // Load page-specific data
-    if (page === 'categories') {
-        displayCategories();
-    }
+    if (page === 'categories') displayCategories();
 
-    // Close sidebar on mobile
-    document.querySelector('.sidebar').classList.remove('open');
+    // Scroll page content to top on navigation
+    const pageContent = document.querySelector('.page-content');
+    if (pageContent) pageContent.scrollTop = 0;
+}
+
+// ── Mobile sidebar helpers ────────────────────────────────────────────────────
+function toggleSidebar() {
+    const sidebar = document.querySelector('.sidebar');
+    const overlay = document.getElementById('sidebarOverlay');
+    const isOpen  = sidebar.classList.toggle('open');
+    if (overlay) overlay.classList.toggle('active', isOpen);
+    document.body.style.overflow = isOpen ? 'hidden' : '';
+}
+
+function closeSidebar() {
+    const sidebar = document.querySelector('.sidebar');
+    const overlay = document.getElementById('sidebarOverlay');
+    sidebar.classList.remove('open');
+    if (overlay) overlay.classList.remove('active');
+    document.body.style.overflow = '';
 }
 
 // API Functions
@@ -1039,23 +1088,17 @@ function displayIncomes(filtered = incomes) {
         const account = accounts.find(a => a._id === income.account_id);
         const accountName = account ? account.name : '-';
         const isSelectedAccount = income.account_id === selectedAccountId;
-
-        // Adicionar destaque visual se for da conta selecionada
         const rowClass = isSelectedAccount ? 'selected-account-income' : '';
 
         return `
             <tr class="${rowClass}">
-                <td>${formatMonth(income.month)}</td>
-                <td>${escapeHtml(income.source)}</td>
-                <td>R$ ${formatCurrency(income.amount)}</td>
-                <td>${escapeHtml(accountName)}</td>
-                <td>
-                    <button onclick="editIncome('${income._id}')" class="btn-secondary" style="padding: 0.5rem 1rem; font-size: 0.875rem; margin-right: 0.5rem;">
-                        Editar
-                    </button>
-                    <button onclick="deleteIncome('${income._id}')" class="btn-danger">
-                        Excluir
-                    </button>
+                <td data-label="Mês">${formatMonth(income.month)}</td>
+                <td data-label="Fonte">${escapeHtml(income.source)}</td>
+                <td data-label="Valor">R$ ${formatCurrency(income.amount)}</td>
+                <td data-label="Conta">${escapeHtml(accountName)}</td>
+                <td data-label="Ações" style="gap:.5rem;flex-wrap:wrap;">
+                    <button onclick="editIncome('${income._id}')" class="btn-secondary btn-sm">Editar</button>
+                    <button onclick="deleteIncome('${income._id}')" class="btn-danger btn-sm">Excluir</button>
                 </td>
             </tr>
         `;
@@ -1189,18 +1232,14 @@ function displayExpenses(filtered = transactions) {
 
         return `
             <tr>
-                <td>${formatMonth(transaction.month)}</td>
-                <td>${escapeHtml(transaction.reason)}</td>
-                <td>R$ ${formatCurrency(transaction.expense || 0)}</td>
-                <td>${escapeHtml(categoryName)}</td>
-                <td>${escapeHtml(accountName)}</td>
-                <td>
-                    <button onclick="editExpense('${transaction._id}')" class="btn-secondary" style="padding: 0.5rem 1rem; font-size: 0.875rem; margin-right: 0.5rem;">
-                        Editar
-                    </button>
-                    <button onclick="deleteExpense('${transaction._id}')" class="btn-danger">
-                        Excluir
-                    </button>
+                <td data-label="Mês">${formatMonth(transaction.month)}</td>
+                <td data-label="Motivo">${escapeHtml(transaction.reason)}</td>
+                <td data-label="Valor">R$ ${formatCurrency(transaction.expense || 0)}</td>
+                <td data-label="Categoria">${escapeHtml(categoryName)}</td>
+                <td data-label="Conta">${escapeHtml(accountName)}</td>
+                <td data-label="Ações" style="gap:.5rem;flex-wrap:wrap;">
+                    <button onclick="editExpense('${transaction._id}')" class="btn-secondary btn-sm">Editar</button>
+                    <button onclick="deleteExpense('${transaction._id}')" class="btn-danger btn-sm">Excluir</button>
                 </td>
             </tr>
         `;
