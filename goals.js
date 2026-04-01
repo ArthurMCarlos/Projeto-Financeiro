@@ -1,6 +1,5 @@
 // Goals management functionality
-
-let goals = [];
+// Nota: a variável `goals` é declarada em dashboard.js e compartilhada entre os arquivos.
 
 // Initialize goals functionality
 async function initializeGoals() {
