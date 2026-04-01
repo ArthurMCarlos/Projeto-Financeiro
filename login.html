@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <link rel="icon" href="https://img.icons8.com/?size=100&id=aTrrRPCUiwd6&format=png&color=000000" type="image/png">
     <title>Login - Organização Financeira</title>
     <link rel="stylesheet" href="./style.css">
@@ -14,14 +14,16 @@
             <!-- Formulario de Login-->
             <div id="loginForm" class="auth-form">
                 <h2>Entrar</h2>
-                <form onsubmit="login(event)">
+                <form onsubmit="login(event)" autocomplete="on">
                     <div class="form-group">
                         <label for="loginEmail">Email:</label>
-                        <input type="email" id="loginEmail" required class="input">
+                        <input type="email" id="loginEmail" required class="input"
+                            autocomplete="email" inputmode="email">
                     </div>
                     <div class="form-group">
                         <label for="loginPassword">Senha:</label>
-                        <input type="password" id="loginPassword" required class="input">
+                        <input type="password" id="loginPassword" required class="input"
+                            autocomplete="current-password" minlength="8">
                     </div>
                     <button type="submit" class="btn-primary full-width">Entrar</button>
                 </form>
@@ -32,22 +34,27 @@
             <!-- Register Form -->
             <div id="registerForm" class="auth-form" style="display: none;">
                 <h2>Cadastrar</h2>
-                <form onsubmit="register(event)">
+                <form onsubmit="register(event)" autocomplete="on">
                     <div class="form-group">
                         <label for="registerName">Nome:</label>
-                        <input type="text" id="registerName" required class="input">
+                        <input type="text" id="registerName" required class="input"
+                            autocomplete="name">
                     </div>
                     <div class="form-group">
                         <label for="registerEmail">Email:</label>
-                        <input type="email" id="registerEmail" required class="input">
+                        <input type="email" id="registerEmail" required class="input"
+                            autocomplete="email" inputmode="email">
                     </div>
                     <div class="form-group">
                         <label for="registerPassword">Senha:</label>
-                        <input type="password" id="registerPassword" required minlength="6" class="input">
+                        <input type="password" id="registerPassword" required class="input"
+                            autocomplete="new-password" minlength="8"
+                            placeholder="Mínimo 8 caracteres">
                     </div>
                     <div class="form-group">
                         <label for="confirmPassword">Confirmar Senha:</label>
-                        <input type="password" id="confirmPassword" required minlength="6" class="input">
+                        <input type="password" id="confirmPassword" required class="input"
+                            autocomplete="new-password" minlength="8">
                     </div>
                     <button type="submit" class="btn-primary full-width">Cadastrar</button>
                 </form>
