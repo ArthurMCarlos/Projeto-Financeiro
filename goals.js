@@ -1,27 +1,27 @@
 // Goals management functionality
 // Nota: a variável `goals` é declarada em dashboard.js e compartilhada entre os arquivos.
 
-// Initialize goals functionality
+// Initialize goals functionality — chamado por initializeEventListeners no dashboard.js
 async function initializeGoals() {
     await loadGoals();
-    initializeGoalEventListeners();
+    // Não chama initializeGoalEventListeners aqui — já é chamado pelo dashboard.js
 }
 
 function initializeGoalEventListeners() {
-    // Add goal button
-    document.getElementById('addGoalBtn').addEventListener('click', () => {
-        openGoalModal();
-    });
+    const addBtn = document.getElementById('addGoalBtn');
+    if (addBtn) addBtn.addEventListener('click', () => openGoalModal());
 
-    // Goal filters
-    document.getElementById('goalStatusFilter').addEventListener('change', filterGoals);
-    document.getElementById('goalTypeFilter').addEventListener('change', filterGoals);
+    const statusFilter = document.getElementById('goalStatusFilter');
+    if (statusFilter) statusFilter.addEventListener('change', filterGoals);
 
-    // Goal form
-    document.getElementById('goalForm').addEventListener('submit', saveGoal);
+    const typeFilter = document.getElementById('goalTypeFilter');
+    if (typeFilter) typeFilter.addEventListener('change', filterGoals);
 
-    // Goal type change handler
-    document.getElementById('goalType').addEventListener('change', handleGoalTypeChange);
+    const form = document.getElementById('goalForm');
+    if (form) form.addEventListener('submit', saveGoal);
+
+    const goalTypeSelect = document.getElementById('goalType');
+    if (goalTypeSelect) goalTypeSelect.addEventListener('change', handleGoalTypeChange);
 }
 
 // API Functions for Goals
@@ -39,41 +39,31 @@ async function loadGoals() {
 
 async function saveGoal(event) {
     event.preventDefault();
-    
-    const formData = new FormData(event.target);
+
     const goalId = document.getElementById('goalId').value;
-    
+
     const goalData = {
-        title: document.getElementById('goalTitle').value,
-        description: document.getElementById('goalDescription').value,
-        goal_type: document.getElementById('goalType').value,
-        target_amount: parseFloat(document.getElementById('goalTargetAmount').value),
+        name:           document.getElementById('goalTitle').value.trim(),
+        description:    document.getElementById('goalDescription').value.trim(),
+        goal_type:      document.getElementById('goalType').value,
+        target_amount:  parseFloat(document.getElementById('goalTargetAmount').value),
         current_amount: parseFloat(document.getElementById('goalCurrentAmount').value) || 0,
-        target_date: document.getElementById('goalTargetDate').value,
-        category_id: document.getElementById('goalCategory').value || null
+        deadline:       document.getElementById('goalTargetDate').value,
+        category_id:    document.getElementById('goalCategory').value || null
     };
 
     try {
         if (goalId) {
-            // Update existing goal
-            await apiCall(`/api/goals/${goalId}`, {
-                method: 'PUT',
-                body: JSON.stringify(goalData)
-            });
+            await apiCall(`/api/goals/${goalId}`, { method: 'PUT', body: JSON.stringify(goalData) });
         } else {
-            // Create new goal
-            await apiCall('/api/goals', {
-                method: 'POST',
-                body: JSON.stringify(goalData)
-            });
+            await apiCall('/api/goals', { method: 'POST', body: JSON.stringify(goalData) });
         }
-        
         closeGoalModal();
         await loadGoals();
-        showNotification('Meta salva com sucesso!', 'success');
+        showToast('Meta salva com sucesso!', 'success');
     } catch (error) {
         console.error('Erro ao salvar meta:', error);
-        showNotification('Erro ao salvar meta', 'error');
+        showToast('Erro ao salvar meta', 'error');
     }
 }
 
@@ -88,10 +78,10 @@ async function deleteGoal(goalId) {
         });
         
         await loadGoals();
-        showNotification('Meta excluída com sucesso!', 'success');
+        showToast('Meta excluída com sucesso!', 'success');
     } catch (error) {
         console.error('Erro ao excluir meta:', error);
-        showNotification('Erro ao excluir meta', 'error');
+        showToast('Erro ao excluir meta', 'error');
     }
 }
 
@@ -103,10 +93,10 @@ async function updateGoalProgress(goalId, newAmount) {
         });
         
         await loadGoals();
-        showNotification('Progresso atualizado!', 'success');
+        showToast('Progresso atualizado!', 'success');
     } catch (error) {
         console.error('Erro ao atualizar progresso:', error);
-        showNotification('Erro ao atualizar progresso', 'error');
+        showToast('Erro ao atualizar progresso', 'error');
     }
 }
 
@@ -118,17 +108,18 @@ async function toggleGoalStatus(goalId, newStatus) {
         });
         
         await loadGoals();
-        showNotification('Status da meta atualizado!', 'success');
+        showToast('Status da meta atualizado!', 'success');
     } catch (error) {
         console.error('Erro ao atualizar status:', error);
-        showNotification('Erro ao atualizar status', 'error');
+        showToast('Erro ao atualizar status', 'error');
     }
 }
 
 // Display Functions
 function displayGoals(filteredGoals = goals) {
     const container = document.getElementById('goalsContainer');
-    
+    if (!container) return;
+
     if (filteredGoals.length === 0) {
         container.innerHTML = `
             <div class="text-center" style="grid-column: 1 / -1; padding: 3rem;">
@@ -145,38 +136,38 @@ function displayGoals(filteredGoals = goals) {
 
 function displayGoalsPreview() {
     const container = document.getElementById('goalsPreviewContainer');
-    const activeGoals = goals.filter(goal => goal.status === 'active').slice(0, 3);
-    
+    if (!container) return;
+    const activeGoals = goals.filter(goal => goal.status === 'ativa').slice(0, 3);
+
     if (activeGoals.length === 0) {
-        container.innerHTML = `
-            <div class="text-center" style="grid-column: 1 / -1; padding: 2rem;">
-                <p style="color: var(--text-secondary);">Nenhuma meta ativa no momento.</p>
-            </div>
-        `;
+        container.style.display = 'none';
         return;
     }
 
+    container.style.display = 'grid';
     container.innerHTML = activeGoals.map(goal => createGoalCard(goal, true)).join('');
 }
 
 function createGoalCard(goal, isPreview = false) {
     const progress = calculateProgress(goal);
-    const daysRemaining = calculateDaysRemaining(goal.target_date);
+    const daysRemaining = calculateDaysRemaining(goal.deadline || goal.target_date);
     const isOverdue = daysRemaining < 0;
     const isNearDeadline = daysRemaining <= 7 && daysRemaining >= 0;
-    
+    const goalName = goal.name || goal.title || 'Meta';
+    const statusClass = goal.status === 'ativa' ? 'active' : goal.status === 'concluida' ? 'completed' : 'paused';
+
     return `
         <div class="goal-card ${isPreview ? 'goal-preview' : ''}">
             <div class="goal-header">
                 <div>
-                    <h3 class="goal-title">${escapeHtml(goal.title)}</h3>
-                    <span class="goal-type ${goal.goal_type}">${getGoalTypeLabel(goal.goal_type)}</span>
+                    <h3 class="goal-title">${escapeHtml(goalName)}</h3>
+                    <span class="goal-type ${goal.goal_type || ''}">${getGoalTypeLabel(goal.goal_type)}</span>
                 </div>
-                <span class="goal-status ${goal.status}">${getStatusLabel(goal.status)}</span>
+                <span class="goal-status ${statusClass}">${getStatusLabel(goal.status)}</span>
             </div>
-            
+
             ${goal.description ? `<p class="goal-description">${escapeHtml(goal.description)}</p>` : ''}
-            
+
             <div class="goal-progress">
                 <div class="goal-amounts">
                     <span class="goal-current">R$ ${formatCurrency(goal.current_amount || 0)}</span>
@@ -187,24 +178,24 @@ function createGoalCard(goal, isPreview = false) {
                 </div>
                 <div class="progress-percentage">${progress.toFixed(1)}% concluído</div>
             </div>
-            
+
             <div class="goal-date">
                 <span class="goal-date-label">Data alvo:</span>
                 <span class="goal-date-value ${isOverdue ? 'text-danger' : isNearDeadline ? 'text-warning' : ''}">
-                    ${formatDate(goal.target_date)}
+                    ${formatDate(goal.deadline || goal.target_date)}
                     ${isOverdue ? '(Vencida)' : isNearDeadline ? `(${daysRemaining} dias)` : ''}
                 </span>
             </div>
-            
+
             ${!isPreview ? `
                 <div class="goal-actions">
-                    <button onclick="editGoal('${goal._id}')" class="btn-secondary">Editar</button>
-                    <button onclick="updateProgress('${goal._id}')" class="btn-primary">Atualizar</button>
-                    ${goal.status === 'active' ? 
-                        `<button onclick="toggleGoalStatus('${goal._id}', 'completed')" class="btn-secondary">Concluir</button>` :
-                        `<button onclick="toggleGoalStatus('${goal._id}', 'active')" class="btn-secondary">Reativar</button>`
+                    <button onclick="editGoal('${goal._id}')" class="btn-secondary btn-sm">Editar</button>
+                    <button onclick="updateProgress('${goal._id}')" class="btn-primary btn-sm">Atualizar</button>
+                    ${goal.status === 'ativa' ?
+                        `<button onclick="toggleGoalStatus('${goal._id}', 'concluida')" class="btn-secondary btn-sm">Concluir</button>` :
+                        `<button onclick="toggleGoalStatus('${goal._id}', 'ativa')" class="btn-secondary btn-sm">Reativar</button>`
                     }
-                    <button onclick="deleteGoal('${goal._id}')" class="btn-danger">Excluir</button>
+                    <button onclick="deleteGoal('${goal._id}')" class="btn-danger btn-sm">Excluir</button>
                 </div>
             ` : ''}
         </div>
@@ -277,18 +268,18 @@ function editGoal(goalId) {
     const goal = goals.find(g => g._id === goalId);
     
     if (!goal) {
-        showNotification('Meta não encontrada', 'error');
+        showToast('Meta não encontrada', 'error');
         return;
     }
 
     // Fill form with goal data
     document.getElementById('goalId').value = goal._id;
-    document.getElementById('goalTitle').value = goal.title;
+    document.getElementById('goalTitle').value = goal.name || goal.title || '';
     document.getElementById('goalDescription').value = goal.description || '';
     document.getElementById('goalType').value = goal.goal_type;
     document.getElementById('goalTargetAmount').value = goal.target_amount;
     document.getElementById('goalCurrentAmount').value = goal.current_amount || 0;
-    document.getElementById('goalTargetDate').value = goal.target_date;
+    document.getElementById('goalTargetDate').value = goal.deadline || goal.target_date || '';
     document.getElementById('goalCategory').value = goal.category_id || '';
     
     document.getElementById('goalModalTitle').textContent = 'Editar Meta';
@@ -300,7 +291,7 @@ function updateProgress(goalId) {
     if (!goal) return;
 
     const newAmount = prompt(
-        `Atualizar progresso da meta "${escapeHtml(goal.title)}":\nValor atual: R$ ${formatCurrency(goal.current_amount || 0)}\nNovo valor:`,
+        `Atualizar progresso da meta "${escapeHtml(goal.name || goal.title)}":\nValor atual: R$ ${formatCurrency(goal.current_amount || 0)}\nNovo valor:`,
         goal.current_amount || 0
     );
 
@@ -311,24 +302,27 @@ function updateProgress(goalId) {
 
 function updateGoalCategorySelect() {
     const select = document.getElementById('goalCategory');
-    select.innerHTML = '<option value="">Selecione uma categoria (opcional)</option>';
-    
-    categories.forEach(category => {
-        const option = new Option(category.name, category._id);
-        select.add(option);
-    });
+    if (!select) return;
+    select.innerHTML = '<option value="">Sem categoria</option>';
+    if (typeof categories !== 'undefined') {
+        categories.forEach(category => {
+            const option = new Option(escapeHtml(category.name), category._id);
+            select.add(option);
+        });
+    }
 }
 
 function handleGoalTypeChange() {
-    const goalType = document.getElementById('goalType').value;
+    const goalType = document.getElementById('goalType');
     const categoryGroup = document.getElementById('goalCategoryGroup');
-    
-    // Exibe a seleção de categoria apenas para metas do tipo limite de gastos
-    if (goalType === 'expense_limit') {
+    if (!goalType || !categoryGroup) return;
+
+    if (goalType.value === 'expense_limit') {
         categoryGroup.style.display = 'block';
     } else {
         categoryGroup.style.display = 'none';
-        document.getElementById('goalCategory').value = '';
+        const cat = document.getElementById('goalCategory');
+        if (cat) cat.value = '';
     }
 }
 
@@ -349,69 +343,33 @@ function filterGoals() {
 
 // Alert Functions
 function checkGoalAlerts() {
-    const alertContainer = document.getElementById('goalsPreviewContainer');
+    const alertContainer = document.getElementById('goalAlerts');
+    if (!alertContainer) return;
     let alerts = [];
 
     goals.forEach(goal => {
-        if (goal.status !== 'active') return;
+        if (goal.status !== 'ativa') return;
 
         const progress = calculateProgress(goal);
         const daysRemaining = calculateDaysRemaining(goal.target_date);
 
-        // Verifica se a meta foi concluída
         if (progress >= 100) {
-            alerts.push({
-                type: 'success',
-                icon: '🎉',
-                message: `Parabéns! Você atingiu a meta "${escapeHtml(goal.title)}"!`
-            });
-        }
-        // Verifica se a meta está quase concluída (90% ou mais)
-        else if (progress >= 90) {
-            alerts.push({
-                type: 'warning',
-                icon: '🔥',
-                message: `Você está quase lá! Meta "${escapeHtml(goal.title)}" está ${progress.toFixed(1)}% concluída.`
-            });
-        }
-        // Verifica se a meta está vencida
-        else if (daysRemaining < 0) {
-            alerts.push({
-                type: 'warning',
-                icon: '⏰',
-                message: `A meta "${escapeHtml(goal.title)}" está vencida há ${Math.abs(daysRemaining)} dias.`
-            });
-        }
-        // Verifica se a meta está próxima do prazo
-        else if (daysRemaining <= 7) {
-            alerts.push({
-                type: 'warning',
-                icon: '⚠️',
-                message: `A meta "${escapeHtml(goal.title)}" vence em ${daysRemaining} dias.`
-            });
+            alerts.push({ type: 'success', icon: '🎉', message: `Parabéns! Você atingiu a meta "${escapeHtml(goal.name)}"!` });
+        } else if (progress >= 90) {
+            alerts.push({ type: 'warning', icon: '🔥', message: `Quase lá! Meta "${escapeHtml(goal.name)}" está ${progress.toFixed(1)}% concluída.` });
+        } else if (daysRemaining < 0) {
+            alerts.push({ type: 'warning', icon: '⏰', message: `A meta "${escapeHtml(goal.name)}" está vencida há ${Math.abs(daysRemaining)} dias.` });
+        } else if (daysRemaining <= 7) {
+            alerts.push({ type: 'warning', icon: '⚠️', message: `A meta "${escapeHtml(goal.name)}" vence em ${daysRemaining} dias.` });
         }
     });
 
-    // Display alerts
-    if (alerts.length > 0) {
-        const alertsHtml = alerts.map(alert => `
-            <div class="goal-alert ${alert.type}">
-                <span class="goal-alert-icon">${alert.icon}</span>
-                <span class="goal-alert-text">${alert.message}</span>
-            </div>
-        `).join('');
-
-        // Insere os alertas antes da pré-visualização das metas
-        const existingAlerts = document.querySelector('.goals-alerts');
-        if (existingAlerts) {
-            existingAlerts.remove();
-        }
-
-        const alertsDiv = document.createElement('div');
-        alertsDiv.className = 'goals-alerts';
-        alertsDiv.innerHTML = alertsHtml;
-        alertContainer.parentNode.insertBefore(alertsDiv, alertContainer);
-    }
+    alertContainer.innerHTML = alerts.map(alert => `
+        <div class="goal-alert ${alert.type}">
+            <span class="goal-alert-icon">${alert.icon}</span>
+            <span class="goal-alert-text">${alert.message}</span>
+        </div>
+    `).join('');
 }
 
 // Notification Function
@@ -469,8 +427,4 @@ function updateGoalProgressFromTransactions() {
     });
 }
 
-// Inicializa as metas quando o DOM estiver carregado
-document.addEventListener('DOMContentLoaded', function() {
-    // Inicializa as metas após um breve atraso para garantir que outros componentes estejam carregados
-    setTimeout(initializeGoals, 500);
-});
+// goals.js não registra DOMContentLoaded — a inicialização é gerenciada pelo dashboard.js
