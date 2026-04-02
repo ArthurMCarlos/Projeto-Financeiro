@@ -391,7 +391,32 @@
                         <h3>Metas Financeiras</h3>
                         <button id="addGoalBtn" class="btn-primary">+ Nova Meta</button>
                     </div>
-                    <div id="goalsList" class="goals-grid"></div>
+                    <!-- Alertas de metas -->
+                    <div id="goalAlerts"></div>
+                    <!-- Filtros -->
+                    <div class="filters">
+                        <div class="filter-group">
+                            <label for="goalStatusFilter">Status:</label>
+                            <select id="goalStatusFilter" class="input">
+                                <option value="">Todos</option>
+                                <option value="ativa">Ativa</option>
+                                <option value="concluida">Concluída</option>
+                                <option value="pausada">Pausada</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label for="goalTypeFilter">Tipo:</label>
+                            <select id="goalTypeFilter" class="input">
+                                <option value="">Todos</option>
+                                <option value="savings">Economia</option>
+                                <option value="expense_limit">Limite de Gasto</option>
+                                <option value="income">Receita</option>
+                            </select>
+                        </div>
+                    </div>
+                    <!-- Preview / grid principal -->
+                    <div id="goalsPreviewContainer" class="goals-preview-grid" style="margin-bottom:1rem;display:none;"></div>
+                    <div id="goalsContainer" class="goals-grid"></div>
                 </div>
 
                 <!-- Reports Page -->
@@ -600,25 +625,43 @@
     <!-- Goal Modal -->
     <div id="goalModal" class="modal">
         <div class="modal-content">
-            <span class="close">&times;</span>
+            <span class="close" onclick="closeGoalModal()">&times;</span>
             <h2 id="goalModalTitle">Nova Meta</h2>
             <form id="goalForm">
                 <input type="hidden" id="goalId">
                 <div class="form-group">
-                    <label for="goalName">Nome da Meta:</label>
-                    <input type="text" id="goalName" required class="input" placeholder="Ex: Viagem, Carro, Casa">
+                    <label for="goalTitle">Nome da Meta:</label>
+                    <input type="text" id="goalTitle" required class="input" placeholder="Ex: Viagem, Carro, Reserva">
                 </div>
                 <div class="form-group">
-                    <label for="goalTarget">Valor Alvo (R$):</label>
-                    <input type="number" id="goalTarget" step="0.01" min="0" required class="input">
+                    <label for="goalDescription">Descrição (opcional):</label>
+                    <input type="text" id="goalDescription" class="input" placeholder="Descreva sua meta">
                 </div>
                 <div class="form-group">
-                    <label for="goalCurrent">Valor Atual (R$):</label>
-                    <input type="number" id="goalCurrent" step="0.01" min="0" class="input" value="0">
+                    <label for="goalType">Tipo:</label>
+                    <select id="goalType" class="input">
+                        <option value="savings">Economia</option>
+                        <option value="expense_limit">Limite de Gasto</option>
+                        <option value="income">Receita</option>
+                    </select>
                 </div>
                 <div class="form-group">
-                    <label for="goalDeadline">Prazo:</label>
-                    <input type="month" id="goalDeadline" required class="input">
+                    <label for="goalTargetAmount">Valor Alvo (R$):</label>
+                    <input type="number" id="goalTargetAmount" step="0.01" min="0" required class="input" placeholder="0,00">
+                </div>
+                <div class="form-group">
+                    <label for="goalCurrentAmount">Valor Atual (R$):</label>
+                    <input type="number" id="goalCurrentAmount" step="0.01" min="0" class="input" value="0">
+                </div>
+                <div class="form-group">
+                    <label for="goalTargetDate">Prazo:</label>
+                    <input type="date" id="goalTargetDate" required class="input">
+                </div>
+                <div class="form-group" id="goalCategoryGroup">
+                    <label for="goalCategory">Categoria (opcional):</label>
+                    <select id="goalCategory" class="input">
+                        <option value="">Sem categoria</option>
+                    </select>
                 </div>
                 <div class="form-actions">
                     <button type="submit" class="btn-primary">Salvar</button>
@@ -677,7 +720,6 @@
     </div>
 
     <script src="./dashboard.js"></script>
-    <script src="./charts.js"></script>
     <script src="./goals.js"></script>
 </body>
 
