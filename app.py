@@ -1144,7 +1144,7 @@ def update_transaction(current_user, transaction_id):
         )
     else:
         original = next((t for t in memory_storage['transactions']
-                         if t['_id'] == transaction_id and t['user_id'] == user_id), None)
+                        if t['_id'] == transaction_id and t['user_id'] == user_id), None)
 
     if not original:
         return jsonify({'message': 'Transação não encontrada'}), 404
@@ -1190,16 +1190,16 @@ def update_transaction(current_user, transaction_id):
 
         if account_changed:
             # Revert the old account (undo the original transaction)
-            if old_account_id and not _is_credit_card(old_account_id):
+            if old_account_id:
                 revert_change = -(old_income - old_expense)
                 update_account_balance(user_id, old_account_id, revert_change)
             # Apply the new values to the new account
-            if new_account_id and not _is_credit_card(new_account_id):
+            if new_account_id:
                 apply_change = new_income - new_expense
                 update_account_balance(user_id, new_account_id, apply_change)
         else:
             # Same account — apply the diff between old and new values
-            if new_account_id and not _is_credit_card(new_account_id):
+            if new_account_id:
                 diff = (new_income - new_expense) - (old_income - old_expense)
                 if diff != 0:
                     update_account_balance(user_id, new_account_id, diff)
@@ -1233,7 +1233,7 @@ def delete_transaction(current_user, transaction_id):
         })
     else:
         transaction = next((t for t in memory_storage['transactions']
-                          if t['_id'] == transaction_id and t['user_id'] == user_id), None)
+                        if t['_id'] == transaction_id and t['user_id'] == user_id), None)
 
         if not transaction:
             return jsonify({'message': 'Transação não encontrada'}), 404
@@ -1311,7 +1311,7 @@ def update_income(current_user, income_id):
         )
     else:
         original = next((i for i in memory_storage['incomes']
-                         if i['_id'] == income_id and i['user_id'] == user_id), None)
+                        if i['_id'] == income_id and i['user_id'] == user_id), None)
 
     if not original:
         return jsonify({'message': 'Receita não encontrada'}), 404
@@ -1394,7 +1394,7 @@ def delete_income(current_user, income_id):
         })
     else:
         income = next((i for i in memory_storage['incomes']
-                      if i['_id'] == income_id and i['user_id'] == user_id), None)
+                    if i['_id'] == income_id and i['user_id'] == user_id), None)
 
         if not income:
             return jsonify({'message': 'Receita não encontrada'}), 404
@@ -2139,6 +2139,28 @@ def delete_transfer(current_user, transfer_id):
 
     return jsonify({'message': 'Transferência estornada e excluída com sucesso!'})
 
+def update_account_balance(user_id, account_id, amount_change):
+    if not account_id or amount_change == 0:
+        return
+
+    try:
+        if db_manager.db is not None:
+            accounts_collection.update_one(
+                {'_id': safe_object_id(account_id), 'user_id': user_id},
+                {
+                    '$inc': {'balance': amount_change},
+                    '$set': {'updated_at': datetime.now(timezone.utc)}
+                }
+            )
+        else:
+            account = next((a for a in memory_storage['accounts']
+                        if a['_id'] == account_id and a['user_id'] == user_id), None)
+            if account:
+                account['balance'] = account.get('balance', 0) + amount_change
+                account['updated_at'] = datetime.now(timezone.utc)
+
+    except Exception as e:
+        print(f"Erro ao atualizar saldo da conta {account_id}: {e}")
 
 # Export Routes
 @app.route('/api/export/<format>', methods=['GET'])
@@ -2303,19 +2325,20 @@ def import_data(current_user):
 def serve_static(filename):
     """
     Serve arquivos estáticos de forma segura.
-    send_from_directory normaliza o caminho e rejeita traversal (../).
-    Apenas extensões permitidas são servidas.
+    Usa app.root_path (definido pelo Flask) em vez de __file__ para evitar
+    problemas com gunicorn/uWSGI onde __file__ pode resolver inesperadamente.
+    Apenas extensões da whitelist são servidas.
     """
-    ALLOWED_EXTENSIONS = {'.html', '.css', '.js', '.ico', '.png', '.jpg', '.svg', '.webp'}
-    base_dir = os.path.abspath(os.path.dirname(__file__))
+    ALLOWED_EXTENSIONS = {'.html', '.css', '.js', '.ico', '.png', '.jpg', '.svg', '.webp', '.json'}
 
-    # Rejeita extensões não permitidas antes mesmo de tocar no disco
     _, ext = os.path.splitext(filename)
     if ext.lower() not in ALLOWED_EXTENSIONS:
         return "Not found", 404
 
+    # app.root_path é sempre o diretório que contém app.py,
+    # independente de como o processo foi iniciado
     try:
-        return send_from_directory(base_dir, filename)
+        return send_from_directory(app.root_path, filename)
     except Exception:
         return "Not found", 404
 
