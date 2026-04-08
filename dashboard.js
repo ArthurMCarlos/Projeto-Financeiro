@@ -783,10 +783,13 @@ function updateAccountBalances() {
 // Função para recalcular todos os saldos das contas no backend
 async function recalculateAllBalances() {
     try {
-        // Buscar dados atualizados do servidor antes de exibir
-        await Promise.all([loadAccounts(), loadTransfers()]);
+        // 1. Chamar a API para forçar o recálculo no servidor
+        await apiCall('/api/accounts/recalculate', { method: 'POST' });
 
-        console.log('Saldos das contas atualizados automaticamente!');
+        // 2. Buscar dados atualizados do servidor
+        await Promise.all([loadAccounts(), loadTransfers(), loadTransactions(), loadIncomes()]);
+
+        console.log('Saldos das contas recalculados com sucesso!');
         showNotification('Saldos das contas atualizados!', 'success');
     } catch (error) {
         console.error('Erro ao recalcular saldos:', error);
