@@ -407,6 +407,7 @@ def validate_password(password: str) -> str | None:
     return None
 
 
+def update_account_balance(user_id, account_id, amount_change):
     if not account_id or amount_change == 0:
         return
 
@@ -471,6 +472,21 @@ def recalculate_account_balance(user_id, account_id):
                 total_change += transaction.get('income', 0)
                 total_change -= transaction.get('expense', 0)
 
+            # Incluir transferências no recálculo
+            transfers_in = db_manager.db.transfers.find({
+                'user_id': user_id,
+                'to_account_id': account_id
+            })
+            for transfer in transfers_in:
+                total_change += transfer.get('amount', 0)
+
+            transfers_out = db_manager.db.transfers.find({
+                'user_id': user_id,
+                'from_account_id': account_id
+            })
+            for transfer in transfers_out:
+                total_change -= transfer.get('amount', 0)
+
             accounts_collection.update_one(
                 {'_id': safe_object_id(account_id), 'user_id': user_id},
                 {'$set': {
@@ -490,6 +506,17 @@ def recalculate_account_balance(user_id, account_id):
             for transaction in transactions:
                 total_change += transaction.get('income', 0)
                 total_change -= transaction.get('expense', 0)
+
+            # Incluir transferências no recálculo em memória
+            transfers_in = [t for t in memory_storage.get('transfers', [])
+                           if t['user_id'] == user_id and t.get('to_account_id') == account_id]
+            for transfer in transfers_in:
+                total_change += transfer.get('amount', 0)
+
+            transfers_out = [t for t in memory_storage.get('transfers', [])
+                            if t['user_id'] == user_id and t.get('from_account_id') == account_id]
+            for transfer in transfers_out:
+                total_change -= transfer.get('amount', 0)
 
             account = next((a for a in memory_storage['accounts']
                            if a['_id'] == account_id and a['user_id'] == user_id), None)
@@ -1524,6 +1551,22 @@ def get_accounts(current_user):
         accounts = [a for a in memory_storage['accounts'] if a['user_id'] == user_id]
 
     return jsonify({'accounts': serialize_doc(accounts)})
+
+@app.route('/api/accounts/recalculate', methods=['POST'])
+@token_required
+@with_connection_retry(max_retries=3)
+def recalculate_all_balances_route(current_user):
+    user_id = str(current_user['_id'])
+    
+    if db_manager.db is not None:
+        accounts = list(accounts_collection.find({'user_id': user_id}))
+    else:
+        accounts = [a for a in memory_storage['accounts'] if a['user_id'] == user_id]
+        
+    for account in accounts:
+        recalculate_account_balance(user_id, str(account['_id']))
+        
+    return jsonify({'message': 'Saldos de todas as contas recalculados com sucesso!'})
 
 @app.route('/api/accounts', methods=['POST'])
 @token_required
