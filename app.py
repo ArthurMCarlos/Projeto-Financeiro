@@ -411,6 +411,9 @@ def update_account_balance(user_id, account_id, amount_change):
     if not account_id or amount_change == 0:
         return
 
+    # Arredonda para evitar acumulo de erro de ponto flutuante no banco
+    amount_change = round(float(amount_change), 2)
+
     try:
         if db_manager.db is not None:
             # Usa $inc atômico — elimina race condition entre leitura e escrita
@@ -2095,8 +2098,9 @@ def create_transfer(current_user):
 
     # Verificar saldo suficiente (exceto cartão de crédito como destino)
     if from_account.get('type') != 'cartao':
-        available_balance = float(from_account.get('balance', 0) or 0)
-        if available_balance < amount:
+        available_balance = round(float(from_account.get('balance', 0) or 0), 2)
+        transfer_amount = round(amount, 2)
+        if available_balance < transfer_amount:
             return jsonify({'message': f'Saldo insuficiente na conta "{from_account.get("name")}". Saldo disponível: R$ {available_balance:.2f}'}), 400
 
     # Registrar a transferência
