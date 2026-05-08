@@ -2095,8 +2095,9 @@ def create_transfer(current_user):
 
     # Verificar saldo suficiente (exceto cartão de crédito como destino)
     if from_account.get('type') != 'cartao':
-        if from_account.get('balance', 0) < amount:
-            return jsonify({'message': f'Saldo insuficiente na conta "{from_account.get("name")}". Saldo disponível: R$ {from_account.get("balance", 0):.2f}'}), 400
+        available_balance = float(from_account.get('balance', 0) or 0)
+        if available_balance < amount:
+            return jsonify({'message': f'Saldo insuficiente na conta "{from_account.get("name")}". Saldo disponível: R$ {available_balance:.2f}'}), 400
 
     # Registrar a transferência
     transfer_data = {
