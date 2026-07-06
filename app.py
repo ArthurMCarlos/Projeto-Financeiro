@@ -23,8 +23,24 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.lib import colors
 import json
+from apscheduler.schedulers.background import BackgroundScheduler
+from apscheduler.triggers.cron import CronTrigger
+import atexit
 
 app = Flask(__name__)
+
+# Flag global para identificar ambiente de produção
+IS_PRODUCTION = bool(
+    os.environ.get('RENDER') or
+    os.environ.get('FLASK_ENV') == 'production'
+)
+
+# =====================================================
+# WHITELISTS DE VALIDAÇÃO
+# =====================================================
+VALID_ACCOUNT_TYPES = {'corrente', 'poupanca', 'cartao', 'investimento'}
+VALID_GOAL_STATUSES = {'ativa', 'concluida', 'pausada', 'cancelada'}
+VALID_GOAL_TYPES = {'savings', 'expense_limit', 'income'}
 
 # =====================================================
 # CONFIGURAÇÃO SEGURA
@@ -1130,15 +1146,22 @@ def create_transaction(current_user):
     if not data or not all(k in data for k in required_fields):
         return jsonify({'message': 'Dados incompletos'}), 400
 
+    # Validação de valores monetários (rejeita negativos)
+    expense = float(data.get('expense', 0))
+    income = float(data.get('income', 0))
+    current_value = float(data.get('current_value', 0))
+    if expense < 0 or income < 0 or current_value < 0:
+        return jsonify({'message': 'Valores monetários não podem ser negativos'}), 400
+
     user_id = str(current_user['_id'])
 
     transaction_data = {
         'month': data['month'],
         'reason': data['reason'],
-        'expense': float(data.get('expense', 0)),
-        'current_value': float(data.get('current_value', 0)),
+        'expense': expense,
+        'current_value': current_value,
         'category_id': data['category_id'],
-        'income': float(data.get('income', 0)),
+        'income': income,
         'account_id': data.get('account_id'),
         'user_id': user_id,
         'created_at': datetime.now(timezone.utc)
@@ -1183,7 +1206,13 @@ def update_transaction(current_user, transaction_id):
     update_data = {}
     for field in ['month', 'reason', 'expense', 'current_value', 'category_id', 'income', 'account_id']:
         if field in data:
-            update_data[field] = float(data[field]) if field in ['expense', 'current_value', 'income'] else data[field]
+            if field in ['expense', 'current_value', 'income']:
+                value = float(data[field])
+                if value < 0:
+                    return jsonify({'message': 'Valores monetários não podem ser negativos'}), 400
+                update_data[field] = value
+            else:
+                update_data[field] = data[field]
 
     update_data['updated_at'] = datetime.now(timezone.utc)
 
@@ -1303,12 +1332,16 @@ def create_income(current_user):
     if not data or not all(k in data for k in required_fields):
         return jsonify({'message': 'Dados incompletos'}), 400
 
+    amount = float(data['amount'])
+    if amount < 0:
+        return jsonify({'message': 'O valor da receita não pode ser negativo'}), 400
+
     user_id = str(current_user['_id'])
 
     income_data = {
         'month': data['month'],
         'source': data['source'],
-        'amount': float(data['amount']),
+        'amount': amount,
         'account_id': data.get('account_id'),
         'user_id': user_id,
         'created_at': datetime.now(timezone.utc)
@@ -1350,7 +1383,13 @@ def update_income(current_user, income_id):
     update_data = {}
     for field in ['month', 'source', 'amount', 'account_id']:
         if field in data:
-            update_data[field] = float(data[field]) if field == 'amount' else data[field]
+            if field == 'amount':
+                value = float(data[field])
+                if value < 0:
+                    return jsonify({'message': 'O valor da receita não pode ser negativo'}), 400
+                update_data[field] = value
+            else:
+                update_data[field] = data[field]
 
     update_data['updated_at'] = datetime.now(timezone.utc)
 
@@ -1460,11 +1499,15 @@ def create_budget(current_user):
     if not data or not all(k in data for k in required_fields):
         return jsonify({'message': 'Dados incompletos'}), 400
 
+    amount = float(data['amount'])
+    if amount <= 0:
+        return jsonify({'message': 'O valor do orçamento deve ser maior que zero'}), 400
+
     user_id = str(current_user['_id'])
 
     budget_data = {
         'category_id': data['category_id'],
-        'amount': float(data['amount']),
+        'amount': amount,
         'month': data['month'],
         'user_id': user_id,
         'created_at': datetime.now(timezone.utc)
@@ -1491,7 +1534,10 @@ def update_budget(current_user, budget_id):
     for field in ['category_id', 'amount', 'month']:
         if field in data:
             if field == 'amount':
-                update_data[field] = float(data[field])
+                value = float(data[field])
+                if value <= 0:
+                    return jsonify({'message': 'O valor do orçamento deve ser maior que zero'}), 400
+                update_data[field] = value
             else:
                 update_data[field] = data[field]
 
@@ -1581,12 +1627,19 @@ def create_account(current_user):
     if not data or not all(k in data for k in required_fields):
         return jsonify({'message': 'Dados incompletos'}), 400
 
+    if data['type'] not in VALID_ACCOUNT_TYPES:
+        return jsonify({'message': f'Tipo de conta inválido. Use um de: {", ".join(sorted(VALID_ACCOUNT_TYPES))}'}), 400
+
+    initial_balance = float(data.get('balance', 0))
+    if initial_balance < 0:
+        return jsonify({'message': 'O saldo inicial não pode ser negativo'}), 400
+
     user_id = str(current_user['_id'])
 
     account_data = {
         'name': data['name'],
         'type': data['type'],
-        'balance': float(data.get('balance', 0)),
+        'balance': initial_balance,
         'user_id': user_id,
         'created_at': datetime.now(timezone.utc)
     }
@@ -1595,6 +1648,8 @@ def create_account(current_user):
         credit_limit = float(data.get('credit_limit', 0))
         closing_day = int(data.get('closing_day', 1))
 
+        if credit_limit <= 0:
+            return jsonify({'message': 'O limite do cartão deve ser maior que zero'}), 400
         if closing_day < 1 or closing_day > 31:
             return jsonify({'message': 'Dia de fechamento deve ser entre 1 e 31'}), 400
 
@@ -1624,12 +1679,19 @@ def update_account(current_user, account_id):
     for field in ['name', 'type', 'balance', 'credit_limit', 'closing_day']:
         if field in data:
             if field in ['balance', 'credit_limit']:
-                update_data[field] = float(data[field])
+                value = float(data[field])
+                if value < 0:
+                    return jsonify({'message': 'Valores monetários da conta não podem ser negativos'}), 400
+                update_data[field] = value
             elif field == 'closing_day':
                 closing_day = int(data[field])
                 if closing_day < 1 or closing_day > 31:
                     return jsonify({'message': 'Dia de fechamento deve ser entre 1 e 31'}), 400
                 update_data[field] = closing_day
+            elif field == 'type':
+                if data[field] not in VALID_ACCOUNT_TYPES:
+                    return jsonify({'message': f'Tipo de conta inválido. Use um de: {", ".join(sorted(VALID_ACCOUNT_TYPES))}'}), 400
+                update_data[field] = data[field]
             else:
                 update_data[field] = data[field]
 
@@ -1688,6 +1750,9 @@ def delete_account(current_user, account_id):
 @token_required
 @with_connection_retry(max_retries=3)
 def debug_credit_card(current_user, account_id):
+    """Endpoint de debug para diagnosticar problemas no cartão de crédito"""
+    if IS_PRODUCTION:
+        return jsonify({'message': 'Endpoint indisponível em produção'}), 404
     """Endpoint de debug para diagnosticar problemas no cartão de crédito"""
     user_id = str(current_user['_id'])
     
@@ -1748,6 +1813,9 @@ def debug_credit_card(current_user, account_id):
 @token_required
 @with_connection_retry(max_retries=3)
 def fix_credit_card_balance(current_user, account_id):
+    """Endpoint para corrigir o saldo do cartão de crédito"""
+    if IS_PRODUCTION:
+        return jsonify({'message': 'Endpoint indisponível em produção'}), 404
     """Endpoint para corrigir o saldo do cartão de crédito"""
     user_id = str(current_user['_id'])
     
@@ -1929,14 +1997,27 @@ def create_goal(current_user):
     if not data or not all(k in data for k in required_fields):
         return jsonify({'message': 'Dados incompletos'}), 400
 
+    target_amount = float(data['target_amount'])
+    current_amount = float(data.get('current_amount', 0))
+    if target_amount <= 0:
+        return jsonify({'message': 'O valor alvo da meta deve ser maior que zero'}), 400
+    if current_amount < 0:
+        return jsonify({'message': 'O valor atual da meta não pode ser negativo'}), 400
+
+    if 'status' in data and data['status'] not in VALID_GOAL_STATUSES:
+        return jsonify({'message': f'Status inválido. Use um de: {", ".join(sorted(VALID_GOAL_STATUSES))}'}), 400
+    if 'goal_type' in data and data['goal_type'] not in VALID_GOAL_TYPES:
+        return jsonify({'message': f'Tipo de meta inválido. Use um de: {", ".join(sorted(VALID_GOAL_TYPES))}'}), 400
+
     user_id = str(current_user['_id'])
 
     goal_data = {
         'name': data['name'],
-        'target_amount': float(data['target_amount']),
-        'current_amount': float(data.get('current_amount', 0)),
+        'target_amount': target_amount,
+        'current_amount': current_amount,
         'deadline': data['deadline'],
-        'status': 'ativa',
+        'status': data.get('status', 'ativa'),
+        'goal_type': data.get('goal_type'),
         'user_id': user_id,
         'created_at': datetime.now(timezone.utc)
     }
@@ -1962,7 +2043,14 @@ def update_goal(current_user, goal_id):
     for field in ['name', 'target_amount', 'current_amount', 'deadline', 'status']:
         if field in data:
             if field in ['target_amount', 'current_amount']:
-                update_data[field] = float(data[field])
+                value = float(data[field])
+                if value < 0:
+                    return jsonify({'message': 'Valores da meta não podem ser negativos'}), 400
+                update_data[field] = value
+            elif field == 'status':
+                if data[field] not in VALID_GOAL_STATUSES:
+                    return jsonify({'message': f'Status inválido. Use um de: {", ".join(sorted(VALID_GOAL_STATUSES))}'}), 400
+                update_data[field] = data[field]
             else:
                 update_data[field] = data[field]
 
@@ -2083,6 +2171,10 @@ def create_transfer(current_user):
     if amount <= 0:
         return jsonify({'message': 'O valor da transferência deve ser maior que zero.'}), 400
 
+    # Limite de sanidade: evita digitação acidental de valor absurdo
+    if amount > 1_000_000_000:
+        return jsonify({'message': 'Valor da transferência excede o limite permitido.'}), 400
+
     # Buscar contas
     if db_manager.db is not None:
         from_account = accounts_collection.find_one({'_id': safe_object_id(from_id), 'user_id': user_id})
@@ -2117,17 +2209,41 @@ def create_transfer(current_user):
     }
 
     if db_manager.db is not None:
-        result = db_manager.db.transfers.insert_one(transfer_data)
-        transfer_id = str(result.inserted_id)
+        # ── Transação atômica: tudo ou nada ───────────────────────────
+        # Sem isso, se o processo cair entre o débito e o crédito, o
+        # dinheiro desaparece. Atlas e replica sets suportam sessions.
+        try:
+            with db_manager.client.start_session() as session:
+                with session.start_transaction():
+                    result = db_manager.db.transfers.insert_one(transfer_data, session=session)
+                    transfer_id = str(result.inserted_id)
+
+                    accounts_collection.update_one(
+                        {'_id': safe_object_id(from_id), 'user_id': user_id},
+                        {'$inc': {'balance': -amount},
+                         '$set': {'updated_at': datetime.now(timezone.utc)}},
+                        session=session
+                    )
+                    accounts_collection.update_one(
+                        {'_id': safe_object_id(to_id), 'user_id': user_id},
+                        {'$inc': {'balance': amount},
+                         '$set': {'updated_at': datetime.now(timezone.utc)}},
+                        session=session
+                    )
+        except Exception as e:
+            # Se a transação falhar (MongoDB não suporta, replica único, etc.),
+            # cai no fallback sequencial com aviso.
+            print(f"⚠️ Transação atômica indisponível, usando fallback: {e}")
+            result = db_manager.db.transfers.insert_one(transfer_data)
+            transfer_id = str(result.inserted_id)
+            update_account_balance(user_id, from_id, -amount)
+            update_account_balance(user_id, to_id, amount)
     else:
         transfer_id = get_next_id()
         transfer_data['_id'] = transfer_id
         memory_storage['transfers'].append(transfer_data)
-
-    # Debitar da conta de origem
-    update_account_balance(user_id, from_id, -amount)
-    # Creditar na conta de destino
-    update_account_balance(user_id, to_id, amount)
+        update_account_balance(user_id, from_id, -amount)
+        update_account_balance(user_id, to_id, amount)
 
     print(f"💸 Transferência: R$ {amount:.2f} de '{from_account.get('name')}' para '{to_account.get('name')}'")
 
@@ -2463,6 +2579,45 @@ def create_indexes():
 # Cria índices ao iniciar (não bloqueia se já existirem)
 with app.app_context():
     create_indexes()
+
+
+# =====================================================
+# SCHEDULER AUTOMÁTICO PARA RESET DE CARTÃO DE CRÉDITO
+# =====================================================
+# Sem isso, o reset só acontece quando o usuário chama
+# /api/accounts/check-resets manualmente. Se ele não abrir o app no
+# dia do fechamento, a fatura acumula e o limite fica errado.
+# Roda todo dia às 03:00 (horário local do servidor Render = UTC).
+
+def _scheduled_credit_card_reset():
+    """Itera todos os usuários e dispara o reset de cada cartão vencido."""
+    if db_manager.db is None:
+        return
+    try:
+        user_ids = db_manager.db.users.distinct('_id')
+        count = 0
+        for uid in user_ids:
+            reset = check_and_reset_credit_cards(str(uid))
+            count += len(reset)
+        if count > 0:
+            print(f"🕒 Scheduler: {count} cartão(ões) resetado(s)")
+    except Exception as e:
+        print(f"⚠️ Erro no scheduler de reset de cartão: {e}")
+
+
+_scheduler = BackgroundScheduler(daemon=True)
+_scheduler.add_job(
+    _scheduled_credit_card_reset,
+    trigger=CronTrigger(hour=3, minute=0),
+    id='credit_card_reset',
+    name='Reset automático de cartão de crédito',
+    replace_existing=True,
+    max_instances=1,
+    coalesce=True,
+)
+_scheduler.start()
+print('✅ Scheduler de reset de cartão iniciado (todo dia às 03:00 UTC)')
+atexit.register(lambda: _scheduler.shutdown(wait=False))
 
 
 if __name__ == '__main__':
