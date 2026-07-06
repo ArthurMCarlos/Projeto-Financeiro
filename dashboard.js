@@ -2484,8 +2484,9 @@ async function handleImport(event) {
 // Utility Functions
 function formatCurrency(value) {
     let v = Number(value);
-    if (!Number.isFinite(v)) v = 0;   // null/undefined/NaN/Infinity -> 0
-    if (Object.is(v, -0)) v = 0;      // evita "-0,00" na tela
+    if (!Number.isFinite(v)) v = 0;      // null/undefined/NaN/Infinity -> 0
+    v = Math.round(v * 100) / 100;       // arredonda para centavos ANTES de checar zero
+    if (v === 0) v = 0;                  // -0.003 vira -0 depois do round; normaliza pra 0 positivo
     return new Intl.NumberFormat('pt-BR', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2

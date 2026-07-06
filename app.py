@@ -495,7 +495,7 @@ def recalculate_account_balance(user_id, account_id):
             accounts_collection.update_one(
                 {'_id': safe_object_id(account_id), 'user_id': user_id},
                 {'$set': {
-                    'balance': total_change,
+                    'balance': round(total_change, 2),
                     'updated_at': datetime.now(timezone.utc)
                 }}
             )
@@ -527,7 +527,7 @@ def recalculate_account_balance(user_id, account_id):
                            if a['_id'] == account_id and a['user_id'] == user_id), None)
 
             if account:
-                account['balance'] = total_change
+                account['balance'] = round(total_change, 2)
                 account['updated_at'] = datetime.now(timezone.utc)
 
     except Exception as e:
