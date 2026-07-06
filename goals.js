@@ -372,18 +372,10 @@ function checkGoalAlerts() {
     `).join('');
 }
 
-// Notification Function
-function showNotification(message, type = 'success') {
-    const notification = document.createElement('div');
-    notification.className = `notification ${type}`;
-    notification.textContent = message;
-    
-    document.body.appendChild(notification);
-    
-    setTimeout(() => {
-        notification.remove();
-    }, 3000);
-}
+// NOTE: showNotification é definida em dashboard.js (como sinônimo do
+// sistema de toast estilizado via dashboard.css). Havia uma segunda
+// definição aqui, nunca usada dentro deste arquivo, que só sobrescrevia
+// silenciosamente a versão certa por ser carregada depois — removida.
 
 // Auto-update goal progress based on transactions
 function updateGoalProgressFromTransactions() {

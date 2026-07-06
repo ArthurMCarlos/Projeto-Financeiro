@@ -23,24 +23,10 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.lib import colors
 import json
+import hashlib
 from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
-import atexit
 
 app = Flask(__name__)
-
-# Flag global para identificar ambiente de produção
-IS_PRODUCTION = bool(
-    os.environ.get('RENDER') or
-    os.environ.get('FLASK_ENV') == 'production'
-)
-
-# =====================================================
-# WHITELISTS DE VALIDAÇÃO
-# =====================================================
-VALID_ACCOUNT_TYPES = {'corrente', 'poupanca', 'cartao', 'investimento'}
-VALID_GOAL_STATUSES = {'ativa', 'concluida', 'pausada', 'cancelada'}
-VALID_GOAL_TYPES = {'savings', 'expense_limit', 'income'}
 
 # =====================================================
 # CONFIGURAÇÃO SEGURA
@@ -563,17 +549,9 @@ def check_and_reset_credit_cards(user_id):
         if db_manager.db is not None:
             # Inclui cartões cujo closing_day é today OU cujo closing_day
             # ultrapassa o número de dias do mês (ex: dia 31 em fevereiro
-            # dispara no último dia do mês).
-            credit_cards = list(accounts_collection.find({
-                'user_id': user_id,
-                'type': 'cartao',
-                '$or': [
-                    {'closing_day': today},
-                    {'closing_day': {'$gt': days_in_month}, 'closing_day': {'$gte': today},
-                     '$expr': {'$eq': [today, days_in_month]}}
-                ]
-            }))
-            # Forma mais simples e legível: filtrar em Python após trazer todos os cartões do usuário
+            # dispara no último dia do mês). Filtra em Python após trazer
+            # todos os cartões do usuário, é mais simples e legível do que
+            # tentar expressar essa regra em uma query Mongo.
             all_cards = list(accounts_collection.find({'user_id': user_id, 'type': 'cartao'}))
             credit_cards = [
                 c for c in all_cards
@@ -1146,22 +1124,15 @@ def create_transaction(current_user):
     if not data or not all(k in data for k in required_fields):
         return jsonify({'message': 'Dados incompletos'}), 400
 
-    # Validação de valores monetários (rejeita negativos)
-    expense = float(data.get('expense', 0))
-    income = float(data.get('income', 0))
-    current_value = float(data.get('current_value', 0))
-    if expense < 0 or income < 0 or current_value < 0:
-        return jsonify({'message': 'Valores monetários não podem ser negativos'}), 400
-
     user_id = str(current_user['_id'])
 
     transaction_data = {
         'month': data['month'],
         'reason': data['reason'],
-        'expense': expense,
-        'current_value': current_value,
+        'expense': float(data.get('expense', 0)),
+        'current_value': float(data.get('current_value', 0)),
         'category_id': data['category_id'],
-        'income': income,
+        'income': float(data.get('income', 0)),
         'account_id': data.get('account_id'),
         'user_id': user_id,
         'created_at': datetime.now(timezone.utc)
@@ -1206,13 +1177,7 @@ def update_transaction(current_user, transaction_id):
     update_data = {}
     for field in ['month', 'reason', 'expense', 'current_value', 'category_id', 'income', 'account_id']:
         if field in data:
-            if field in ['expense', 'current_value', 'income']:
-                value = float(data[field])
-                if value < 0:
-                    return jsonify({'message': 'Valores monetários não podem ser negativos'}), 400
-                update_data[field] = value
-            else:
-                update_data[field] = data[field]
+            update_data[field] = float(data[field]) if field in ['expense', 'current_value', 'income'] else data[field]
 
     update_data['updated_at'] = datetime.now(timezone.utc)
 
@@ -1332,16 +1297,12 @@ def create_income(current_user):
     if not data or not all(k in data for k in required_fields):
         return jsonify({'message': 'Dados incompletos'}), 400
 
-    amount = float(data['amount'])
-    if amount < 0:
-        return jsonify({'message': 'O valor da receita não pode ser negativo'}), 400
-
     user_id = str(current_user['_id'])
 
     income_data = {
         'month': data['month'],
         'source': data['source'],
-        'amount': amount,
+        'amount': float(data['amount']),
         'account_id': data.get('account_id'),
         'user_id': user_id,
         'created_at': datetime.now(timezone.utc)
@@ -1383,13 +1344,7 @@ def update_income(current_user, income_id):
     update_data = {}
     for field in ['month', 'source', 'amount', 'account_id']:
         if field in data:
-            if field == 'amount':
-                value = float(data[field])
-                if value < 0:
-                    return jsonify({'message': 'O valor da receita não pode ser negativo'}), 400
-                update_data[field] = value
-            else:
-                update_data[field] = data[field]
+            update_data[field] = float(data[field]) if field == 'amount' else data[field]
 
     update_data['updated_at'] = datetime.now(timezone.utc)
 
@@ -1499,15 +1454,11 @@ def create_budget(current_user):
     if not data or not all(k in data for k in required_fields):
         return jsonify({'message': 'Dados incompletos'}), 400
 
-    amount = float(data['amount'])
-    if amount <= 0:
-        return jsonify({'message': 'O valor do orçamento deve ser maior que zero'}), 400
-
     user_id = str(current_user['_id'])
 
     budget_data = {
         'category_id': data['category_id'],
-        'amount': amount,
+        'amount': float(data['amount']),
         'month': data['month'],
         'user_id': user_id,
         'created_at': datetime.now(timezone.utc)
@@ -1534,10 +1485,7 @@ def update_budget(current_user, budget_id):
     for field in ['category_id', 'amount', 'month']:
         if field in data:
             if field == 'amount':
-                value = float(data[field])
-                if value <= 0:
-                    return jsonify({'message': 'O valor do orçamento deve ser maior que zero'}), 400
-                update_data[field] = value
+                update_data[field] = float(data[field])
             else:
                 update_data[field] = data[field]
 
@@ -1627,19 +1575,12 @@ def create_account(current_user):
     if not data or not all(k in data for k in required_fields):
         return jsonify({'message': 'Dados incompletos'}), 400
 
-    if data['type'] not in VALID_ACCOUNT_TYPES:
-        return jsonify({'message': f'Tipo de conta inválido. Use um de: {", ".join(sorted(VALID_ACCOUNT_TYPES))}'}), 400
-
-    initial_balance = float(data.get('balance', 0))
-    if initial_balance < 0:
-        return jsonify({'message': 'O saldo inicial não pode ser negativo'}), 400
-
     user_id = str(current_user['_id'])
 
     account_data = {
         'name': data['name'],
         'type': data['type'],
-        'balance': initial_balance,
+        'balance': float(data.get('balance', 0)),
         'user_id': user_id,
         'created_at': datetime.now(timezone.utc)
     }
@@ -1648,8 +1589,6 @@ def create_account(current_user):
         credit_limit = float(data.get('credit_limit', 0))
         closing_day = int(data.get('closing_day', 1))
 
-        if credit_limit <= 0:
-            return jsonify({'message': 'O limite do cartão deve ser maior que zero'}), 400
         if closing_day < 1 or closing_day > 31:
             return jsonify({'message': 'Dia de fechamento deve ser entre 1 e 31'}), 400
 
@@ -1679,19 +1618,12 @@ def update_account(current_user, account_id):
     for field in ['name', 'type', 'balance', 'credit_limit', 'closing_day']:
         if field in data:
             if field in ['balance', 'credit_limit']:
-                value = float(data[field])
-                if value < 0:
-                    return jsonify({'message': 'Valores monetários da conta não podem ser negativos'}), 400
-                update_data[field] = value
+                update_data[field] = float(data[field])
             elif field == 'closing_day':
                 closing_day = int(data[field])
                 if closing_day < 1 or closing_day > 31:
                     return jsonify({'message': 'Dia de fechamento deve ser entre 1 e 31'}), 400
                 update_data[field] = closing_day
-            elif field == 'type':
-                if data[field] not in VALID_ACCOUNT_TYPES:
-                    return jsonify({'message': f'Tipo de conta inválido. Use um de: {", ".join(sorted(VALID_ACCOUNT_TYPES))}'}), 400
-                update_data[field] = data[field]
             else:
                 update_data[field] = data[field]
 
@@ -1750,9 +1682,6 @@ def delete_account(current_user, account_id):
 @token_required
 @with_connection_retry(max_retries=3)
 def debug_credit_card(current_user, account_id):
-    """Endpoint de debug para diagnosticar problemas no cartão de crédito"""
-    if IS_PRODUCTION:
-        return jsonify({'message': 'Endpoint indisponível em produção'}), 404
     """Endpoint de debug para diagnosticar problemas no cartão de crédito"""
     user_id = str(current_user['_id'])
     
@@ -1813,9 +1742,6 @@ def debug_credit_card(current_user, account_id):
 @token_required
 @with_connection_retry(max_retries=3)
 def fix_credit_card_balance(current_user, account_id):
-    """Endpoint para corrigir o saldo do cartão de crédito"""
-    if IS_PRODUCTION:
-        return jsonify({'message': 'Endpoint indisponível em produção'}), 404
     """Endpoint para corrigir o saldo do cartão de crédito"""
     user_id = str(current_user['_id'])
     
@@ -1997,27 +1923,14 @@ def create_goal(current_user):
     if not data or not all(k in data for k in required_fields):
         return jsonify({'message': 'Dados incompletos'}), 400
 
-    target_amount = float(data['target_amount'])
-    current_amount = float(data.get('current_amount', 0))
-    if target_amount <= 0:
-        return jsonify({'message': 'O valor alvo da meta deve ser maior que zero'}), 400
-    if current_amount < 0:
-        return jsonify({'message': 'O valor atual da meta não pode ser negativo'}), 400
-
-    if 'status' in data and data['status'] not in VALID_GOAL_STATUSES:
-        return jsonify({'message': f'Status inválido. Use um de: {", ".join(sorted(VALID_GOAL_STATUSES))}'}), 400
-    if 'goal_type' in data and data['goal_type'] not in VALID_GOAL_TYPES:
-        return jsonify({'message': f'Tipo de meta inválido. Use um de: {", ".join(sorted(VALID_GOAL_TYPES))}'}), 400
-
     user_id = str(current_user['_id'])
 
     goal_data = {
         'name': data['name'],
-        'target_amount': target_amount,
-        'current_amount': current_amount,
+        'target_amount': float(data['target_amount']),
+        'current_amount': float(data.get('current_amount', 0)),
         'deadline': data['deadline'],
-        'status': data.get('status', 'ativa'),
-        'goal_type': data.get('goal_type'),
+        'status': 'ativa',
         'user_id': user_id,
         'created_at': datetime.now(timezone.utc)
     }
@@ -2043,14 +1956,7 @@ def update_goal(current_user, goal_id):
     for field in ['name', 'target_amount', 'current_amount', 'deadline', 'status']:
         if field in data:
             if field in ['target_amount', 'current_amount']:
-                value = float(data[field])
-                if value < 0:
-                    return jsonify({'message': 'Valores da meta não podem ser negativos'}), 400
-                update_data[field] = value
-            elif field == 'status':
-                if data[field] not in VALID_GOAL_STATUSES:
-                    return jsonify({'message': f'Status inválido. Use um de: {", ".join(sorted(VALID_GOAL_STATUSES))}'}), 400
-                update_data[field] = data[field]
+                update_data[field] = float(data[field])
             else:
                 update_data[field] = data[field]
 
@@ -2171,10 +2077,6 @@ def create_transfer(current_user):
     if amount <= 0:
         return jsonify({'message': 'O valor da transferência deve ser maior que zero.'}), 400
 
-    # Limite de sanidade: evita digitação acidental de valor absurdo
-    if amount > 1_000_000_000:
-        return jsonify({'message': 'Valor da transferência excede o limite permitido.'}), 400
-
     # Buscar contas
     if db_manager.db is not None:
         from_account = accounts_collection.find_one({'_id': safe_object_id(from_id), 'user_id': user_id})
@@ -2209,31 +2111,32 @@ def create_transfer(current_user):
     }
 
     if db_manager.db is not None:
-        # ── Transação atômica: tudo ou nada ───────────────────────────
-        # Sem isso, se o processo cair entre o débito e o crédito, o
-        # dinheiro desaparece. Atlas e replica sets suportam sessions.
+        # Tenta rodar insert + débito + crédito como transação atômica do
+        # MongoDB (se o cluster suportar — Atlas M0 suporta, por rodar como
+        # replica set). Se não suportar (ex: mongod standalone local), cai
+        # de volta pro caminho sequencial de antes, que já existia.
+        transfer_id = None
         try:
             with db_manager.client.start_session() as session:
                 with session.start_transaction():
                     result = db_manager.db.transfers.insert_one(transfer_data, session=session)
                     transfer_id = str(result.inserted_id)
 
+                    amount_rounded = round(float(amount), 2)
                     accounts_collection.update_one(
                         {'_id': safe_object_id(from_id), 'user_id': user_id},
-                        {'$inc': {'balance': -amount},
+                        {'$inc': {'balance': -amount_rounded},
                          '$set': {'updated_at': datetime.now(timezone.utc)}},
                         session=session
                     )
                     accounts_collection.update_one(
                         {'_id': safe_object_id(to_id), 'user_id': user_id},
-                        {'$inc': {'balance': amount},
+                        {'$inc': {'balance': amount_rounded},
                          '$set': {'updated_at': datetime.now(timezone.utc)}},
                         session=session
                     )
         except Exception as e:
-            # Se a transação falhar (MongoDB não suporta, replica único, etc.),
-            # cai no fallback sequencial com aviso.
-            print(f"⚠️ Transação atômica indisponível, usando fallback: {e}")
+            print(f"⚠️ Transação atômica indisponível, usando caminho sequencial: {e}")
             result = db_manager.db.transfers.insert_one(transfer_data)
             transfer_id = str(result.inserted_id)
             update_account_balance(user_id, from_id, -amount)
@@ -2242,6 +2145,8 @@ def create_transfer(current_user):
         transfer_id = get_next_id()
         transfer_data['_id'] = transfer_id
         memory_storage['transfers'].append(transfer_data)
+        # Sem banco real (modo memória, um processo só) não há concorrência
+        # de verdade, então o caminho sequencial já é seguro aqui.
         update_account_balance(user_id, from_id, -amount)
         update_account_balance(user_id, to_id, amount)
 
@@ -2303,28 +2208,10 @@ def delete_transfer(current_user, transfer_id):
 
     return jsonify({'message': 'Transferência estornada e excluída com sucesso!'})
 
-def update_account_balance(user_id, account_id, amount_change):
-    if not account_id or amount_change == 0:
-        return
-
-    try:
-        if db_manager.db is not None:
-            accounts_collection.update_one(
-                {'_id': safe_object_id(account_id), 'user_id': user_id},
-                {
-                    '$inc': {'balance': amount_change},
-                    '$set': {'updated_at': datetime.now(timezone.utc)}
-                }
-            )
-        else:
-            account = next((a for a in memory_storage['accounts']
-                        if a['_id'] == account_id and a['user_id'] == user_id), None)
-            if account:
-                account['balance'] = account.get('balance', 0) + amount_change
-                account['updated_at'] = datetime.now(timezone.utc)
-
-    except Exception as e:
-        print(f"Erro ao atualizar saldo da conta {account_id}: {e}")
+# NOTE: update_account_balance está definida uma única vez, em cima (perto de
+# recalculate_account_balance), com o arredondamento de float aplicado antes
+# do $inc. A duplicata sem rounding que existia aqui foi removida (era ela
+# quem realmente rodava, por ser a última definição do módulo).
 
 # Export Routes
 @app.route('/api/export/<format>', methods=['GET'])
@@ -2404,6 +2291,21 @@ def import_data(current_user):
 
     user_id = str(current_user['_id'])
 
+    # Conta de destino é obrigatória — sem ela, as transações importadas
+    # ficavam "soltas" (sem account_id) e nunca entravam no saldo de nenhuma
+    # conta, mesmo aparecendo na lista de transações.
+    account_id = request.form.get('account_id', '').strip()
+    if not account_id:
+        return jsonify({'message': 'Informe a conta de destino da importação.'}), 400
+
+    if db_manager.db is not None:
+        target_account = accounts_collection.find_one({'_id': safe_object_id(account_id), 'user_id': user_id})
+    else:
+        target_account = next((a for a in memory_storage['accounts']
+                               if a['_id'] == account_id and a['user_id'] == user_id), None)
+    if not target_account:
+        return jsonify({'message': 'Conta de destino não encontrada.'}), 404
+
     try:
         if ext == '.csv':
             df = pd.read_csv(file)
@@ -2440,26 +2342,60 @@ def import_data(current_user):
                     memory_storage['categories'].append(cat)
                     category_lookup[cat['name']] = cat['_id']
 
+        # ── Fase 1.5: Carregar idempotency_keys já importadas para esta conta,
+        # pra reimportar o mesmo arquivo (ou o mesmo período) não duplicar. ──
+        if db_manager.db is not None:
+            existing_keys = set(
+                t.get('idempotency_key') for t in transactions_collection.find(
+                    {'user_id': user_id, 'account_id': account_id, 'idempotency_key': {'$exists': True}},
+                    {'idempotency_key': 1}
+                )
+            )
+        else:
+            existing_keys = {
+                t.get('idempotency_key') for t in memory_storage['transactions']
+                if t['user_id'] == user_id and t.get('account_id') == account_id and t.get('idempotency_key')
+            }
+
         # ── Fase 2: Construir todos os documentos em memória ──────────────────
         transactions_to_insert = []
         imported_count = 0
+        duplicates = 0
         errors = 0
+        net_balance_change = 0.0
 
         for _, row in df.iterrows():
             try:
                 category_name = str(row.get('Categoria', '') or '').strip()
                 category_id = category_lookup.get(category_name, '')
+                month = str(row.get('Mês', '') or '')
+                reason = str(row.get('Motivo', '') or '')
+                expense = round(float(row.get('Valor Gasto (R$)', 0) or 0), 2)
+                current_value = round(float(row.get('Valor Atual (R$)', 0) or 0), 2)
+                income = round(float(row.get('Valor Recebido (R$)', 0) or 0), 2)
+
+                idempotency_key = hashlib.sha256(
+                    f"{user_id}|{account_id}|{month}|{reason}|{expense}|{income}".encode('utf-8')
+                ).hexdigest()
+
+                if idempotency_key in existing_keys:
+                    duplicates += 1
+                    continue
+                existing_keys.add(idempotency_key)  # evita duplicar dentro do próprio arquivo também
 
                 transactions_to_insert.append({
-                    'month':         str(row.get('Mês', '') or ''),
-                    'reason':        str(row.get('Motivo', '') or ''),
-                    'expense':       float(row.get('Valor Gasto (R$)', 0) or 0),
-                    'current_value': float(row.get('Valor Atual (R$)', 0) or 0),
-                    'category_id':   category_id,
-                    'income':        float(row.get('Valor Recebido (R$)', 0) or 0),
-                    'user_id':       user_id,
-                    'created_at':    datetime.now(timezone.utc)
+                    'month':            month,
+                    'reason':           reason,
+                    'expense':          expense,
+                    'current_value':    current_value,
+                    'category_id':      category_id,
+                    'income':           income,
+                    'account_id':       account_id,
+                    'user_id':          user_id,
+                    'idempotency_key':  idempotency_key,
+                    'created_at':       datetime.now(timezone.utc)
                 })
+                net_balance_change += (income - expense)
                 imported_count += 1
             except Exception as e:
                 print(f"Erro ao processar linha: {e}")
@@ -2475,10 +2411,15 @@ def import_data(current_user):
                     t['_id'] = get_next_id()
                     memory_storage['transactions'].append(t)
 
+            # Atualiza o saldo da conta de destino com o efeito líquido do
+            # que foi importado (receitas - despesas), arredondado.
+            update_account_balance(user_id, account_id, round(net_balance_change, 2))
+
         return jsonify({
-            'message': 'Importação concluída',
-            'imported': imported_count,
-            'errors':   errors
+            'message':    'Importação concluída',
+            'imported':   imported_count,
+            'duplicates': duplicates,
+            'errors':     errors
         })
 
     except Exception as e:
@@ -2580,44 +2521,42 @@ def create_indexes():
 with app.app_context():
     create_indexes()
 
-
 # =====================================================
-# SCHEDULER AUTOMÁTICO PARA RESET DE CARTÃO DE CRÉDITO
+# SCHEDULER — reset automático de cartão de crédito
 # =====================================================
-# Sem isso, o reset só acontece quando o usuário chama
-# /api/accounts/check-resets manualmente. Se ele não abrir o app no
-# dia do fechamento, a fatura acumula e o limite fica errado.
-# Roda todo dia às 03:00 (horário local do servidor Render = UTC).
+# Antes, o reset só acontecia quando o usuário abria o dashboard e o
+# frontend chamava /api/credit-cards/check-resets. Agora roda 1x/dia
+# sozinho, independente de qualquer usuário estar logado.
+# check_and_reset_credit_cards() já é idempotente (guarda last_reset_date),
+# então é seguro esse job rodar em mais de um worker do gunicorn ao mesmo
+# tempo — o segundo worker só vai ver que já foi resetado hoje e pular.
 
-def _scheduled_credit_card_reset():
-    """Itera todos os usuários e dispara o reset de cada cartão vencido."""
-    if db_manager.db is None:
-        return
+def _reset_all_credit_cards_job():
     try:
-        user_ids = db_manager.db.users.distinct('_id')
-        count = 0
+        if db_manager.db is not None:
+            user_ids = [str(u['_id']) for u in users_collection.find({}, {'_id': 1})]
+        else:
+            user_ids = [u['_id'] for u in memory_storage['users']]
+
         for uid in user_ids:
-            reset = check_and_reset_credit_cards(str(uid))
-            count += len(reset)
-        if count > 0:
-            print(f"🕒 Scheduler: {count} cartão(ões) resetado(s)")
+            try:
+                check_and_reset_credit_cards(uid)
+            except Exception as e:
+                print(f"⚠️ Erro ao resetar cartões do usuário {uid}: {e}")
     except Exception as e:
-        print(f"⚠️ Erro no scheduler de reset de cartão: {e}")
+        print(f"⚠️ Erro no job de reset de cartões: {e}")
 
-
-_scheduler = BackgroundScheduler(daemon=True)
+_scheduler = BackgroundScheduler(timezone="America/Sao_Paulo")
 _scheduler.add_job(
-    _scheduled_credit_card_reset,
-    trigger=CronTrigger(hour=3, minute=0),
-    id='credit_card_reset',
-    name='Reset automático de cartão de crédito',
-    replace_existing=True,
-    max_instances=1,
-    coalesce=True,
+    _reset_all_credit_cards_job,
+    'cron',
+    hour=0,
+    minute=5,
+    id='reset_credit_cards_daily',
+    replace_existing=True
 )
 _scheduler.start()
-print('✅ Scheduler de reset de cartão iniciado (todo dia às 03:00 UTC)')
-atexit.register(lambda: _scheduler.shutdown(wait=False))
+print("✅ Scheduler de reset de cartões iniciado (roda todo dia às 00:05)")
 
 
 if __name__ == '__main__':

@@ -426,6 +426,11 @@
                         <div class="export-buttons">
                             <button onclick="exportData('csv')" class="btn-secondary">Exportar CSV</button>
                             <button onclick="exportData('excel')" class="btn-secondary">Exportar Excel</button>
+                            <select id="importAccountSelect" class="input" style="width:auto;display:inline-block;">
+                                <option value="">Conta para importação...</option>
+                            </select>
+                            <button id="importBtn" class="btn-secondary">Importar CSV/Excel</button>
+                            <input type="file" id="importFile" accept=".csv,.xlsx" style="display:none;">
                         </div>
                     </div>
 

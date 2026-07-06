@@ -362,6 +362,21 @@ function initializeEventListeners() {
     const themeToggleMobile = document.getElementById('themeToggleMobile');
     if (themeToggleMobile) themeToggleMobile.addEventListener('click', toggleTheme);
 
+    // Import CSV/Excel
+    const importBtn = document.getElementById('importBtn');
+    const importFile = document.getElementById('importFile');
+    if (importBtn && importFile) {
+        importBtn.addEventListener('click', () => {
+            const select = document.getElementById('importAccountSelect');
+            if (select && !select.value) {
+                showNotification('Selecione a conta de destino antes de importar.', 'warning');
+                return;
+            }
+            importFile.click();
+        });
+        importFile.addEventListener('change', handleImport);
+    }
+
     // Bottom nav buttons
     document.querySelectorAll('.bottom-nav-item').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -835,7 +850,7 @@ function updateCategorySelects() {
 }
 
 function updateAccountSelects() {
-    const selects = ['incomeAccount', 'expenseAccount', 'incomeAccountFilter', 'expenseAccountFilter'];
+    const selects = ['incomeAccount', 'expenseAccount', 'incomeAccountFilter', 'expenseAccountFilter', 'importAccountSelect'];
 
     selects.forEach(selectId => {
         const select = document.getElementById(selectId);
@@ -843,6 +858,8 @@ function updateAccountSelects() {
             const currentValue = select.value;
             select.innerHTML = selectId.includes('Filter') ?
                 '<option value="">Todas as contas</option>' :
+                selectId === 'importAccountSelect' ?
+                '<option value="">Conta para importação...</option>' :
                 '<option value="">Selecione uma conta</option>';
 
             accounts.forEach(account => {
@@ -1470,6 +1487,15 @@ function getCategoryName(categoryId) {
 }
 
 // Enhanced Toast Notifications
+// showNotification é usada em ~27 pontos do arquivo (reset de cartão, salvar
+// receita/despesa/conta/categoria, transferências etc.) mas nunca tinha sido
+// definida — só showToast existia. Isso gerava "showNotification is not
+// defined" no console toda vez que uma dessas ações rodava. Mantemos as duas
+// como sinônimos para não precisar reescrever todas as chamadas.
+function showNotification(message, type = 'info', duration = 4000) {
+    return showToast(message, type, duration);
+}
+
 function showToast(message, type = 'info', duration = 4000) {
     const toastContainer = getOrCreateToastContainer();
 
@@ -2410,12 +2436,60 @@ async function exportData(format) {
     }
 }
 
+// Import Functions
+async function handleImport(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const accountSelect = document.getElementById('importAccountSelect');
+    const accountId = accountSelect ? accountSelect.value : '';
+
+    if (!accountId) {
+        showNotification('Selecione a conta de destino antes de importar.', 'warning');
+        event.target.value = '';
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('account_id', accountId);
+
+    try {
+        const response = await fetch(`${API_BASE}/api/import`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`
+            },
+            body: formData
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            throw new Error(data.message || 'Erro ao importar dados');
+        }
+
+        showNotification(`Importação concluída! ${data.imported} registro(s) importado(s).`, 'success');
+
+        // Recarrega tudo: transações novas + saldo da conta recalculado no backend
+        await Promise.all([loadTransactions(), loadAccounts()]);
+    } catch (error) {
+        console.error('Erro ao importar:', error);
+        showNotification(error.message || 'Erro ao importar dados', 'error');
+    } finally {
+        event.target.value = '';
+    }
+}
+
 // Utility Functions
 function formatCurrency(value) {
+    let v = Number(value);
+    if (!Number.isFinite(v)) v = 0;   // null/undefined/NaN/Infinity -> 0
+    if (Object.is(v, -0)) v = 0;      // evita "-0,00" na tela
     return new Intl.NumberFormat('pt-BR', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2
-    }).format(value);
+    }).format(v);
 }
 
 function formatMonth(monthString) {
