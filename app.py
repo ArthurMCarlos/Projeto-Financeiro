@@ -1565,13 +1565,13 @@ def create_account(current_user):
     account_data = {
         'name': data['name'],
         'type': data['type'],
-        'balance': float(data.get('balance', 0)),
+        'balance': round(float(data.get('balance', 0)), 2),
         'user_id': user_id,
         'created_at': datetime.now(timezone.utc)
     }
 
     if data['type'] == 'cartao':
-        credit_limit = float(data.get('credit_limit', 0))
+        credit_limit = round(float(data.get('credit_limit', 0)), 2)
         closing_day = int(data.get('closing_day', 1))
 
         if closing_day < 1 or closing_day > 31:
@@ -1603,7 +1603,7 @@ def update_account(current_user, account_id):
     for field in ['name', 'type', 'balance', 'credit_limit', 'closing_day']:
         if field in data:
             if field in ['balance', 'credit_limit']:
-                update_data[field] = float(data[field])
+                update_data[field] = round(float(data[field]), 2)
             elif field == 'closing_day':
                 closing_day = int(data[field])
                 if closing_day < 1 or closing_day > 31:

@@ -1838,7 +1838,18 @@ function openAccountModal(account = null) {
         document.getElementById('accountId').value = account._id;
         document.getElementById('accountName').value = account.name;
         document.getElementById('accountType').value = account.type;
-        document.getElementById('accountBalance').value = account.balance || 0;
+
+        // Arredonda para 2 casas antes de exibir: o saldo guardado pode ter
+        // resíduo de ponto flutuante quase-zero (ex: 1.27e-11) que aparecia
+        // em notação científica no campo. Editar esta conta SALVA de volta
+        // o valor deste campo como o saldo atual — por isso o rótulo do
+        // modal também é ajustado pra "Saldo Atual" ao editar (não é um
+        // "saldo inicial" isolado, é o saldo em uso agora).
+        const currentBalance = Math.round((account.balance || 0) * 100) / 100;
+        document.getElementById('accountBalance').value = currentBalance === 0 ? 0 : currentBalance;
+
+        const balanceLabel = document.querySelector('label[for="accountBalance"]');
+        if (balanceLabel) balanceLabel.textContent = 'Saldo Atual (R$):';
 
         // Campos de cartão de crédito
         if (account.type === 'cartao') {
@@ -1847,6 +1858,8 @@ function openAccountModal(account = null) {
         }
     } else {
         document.getElementById('accountModalTitle').textContent = 'Nova Conta';
+        const balanceLabel = document.querySelector('label[for="accountBalance"]');
+        if (balanceLabel) balanceLabel.textContent = 'Saldo Inicial (R$):';
     }
 
     // Atualizar visibilidade dos campos
@@ -1879,7 +1892,7 @@ async function saveAccount(event) {
         accountData.closing_day = closingDay;
         accountData.balance = creditLimit; // Saldo inicial = limite
     } else {
-        accountData.balance = parseFloat(document.getElementById('accountBalance').value) || 0;
+        accountData.balance = Math.round((parseFloat(document.getElementById('accountBalance').value) || 0) * 100) / 100;
     }
 
     try {
