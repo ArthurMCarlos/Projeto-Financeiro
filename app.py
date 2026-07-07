@@ -668,33 +668,25 @@ def force_reset_credit_card(user_id, account_id):
             credit_limit = card.get('credit_limit', 0)
             old_balance = card.get('balance', 0)
 
-            # Calcular o saldo correto com base nas transações
-            # Saldo do cartão = limite - gastos (ou limite + pagamentos)
-            total_expenses = 0
-            transactions_cursor = transactions_collection.find({
-                'user_id': user_id,
-                'account_id': account_id
-            })
-            for transaction in transactions_cursor:
-                expense = transaction.get('expense', 0)
-                income = transaction.get('income', 0)
-                # net_change = income - expense, mas para o saldo do cartão é expense - income
-                total_expenses += expense
-                total_expenses -= income  # Pagamentos aumentam o limite disponível
-            
-            # O saldo correto é: limite - despesas + pagamentos
-            correct_balance = credit_limit - total_expenses
+            # "Resetar Limite" precisa fazer exatamente o que o nome diz:
+            # devolver o limite cheio disponível (balance = credit_limit),
+            # igual ao reset automático em check_and_reset_credit_cards.
+            # A versão antiga recalculava balance = credit_limit - (soma de
+            # TODAS as transações já lançadas nessa conta, desde sempre),
+            # o que não é um reset e "inventava" valores tortos (ex: R$
+            # 400,08 em vez de R$ 400,00) sempre que havia qualquer
+            # transação histórica vinculada à conta.
+            new_balance = round(float(credit_limit), 2)
 
-            print(f"🔧 Correção de cartão: {card.get('name')}")
+            print(f"🔧 Reset manual de cartão: {card.get('name')}")
             print(f"   Limite: R$ {credit_limit}")
-            print(f"   Total despesas: R$ {total_expenses}")
             print(f"   Saldo antigo: R$ {old_balance}")
-            print(f"   Saldo correto: R$ {correct_balance}")
+            print(f"   Saldo novo (= limite total): R$ {new_balance}")
 
             accounts_collection.update_one(
                 {'_id': safe_object_id(account_id)},
                 {'$set': {
-                    'balance': correct_balance,
+                    'balance': new_balance,
                     'last_reset_date': datetime.now(timezone.utc),
                     'updated_at': datetime.now(timezone.utc)
                 }}
@@ -705,7 +697,7 @@ def force_reset_credit_card(user_id, account_id):
                 'account_id': account_id,
                 'account_name': card.get('name', 'Cartão'),
                 'old_balance': old_balance,
-                'new_balance': correct_balance,
+                'new_balance': new_balance,
                 'credit_limit': credit_limit,
                 'reset_date': datetime.now(timezone.utc),
                 'manual': True
@@ -716,7 +708,7 @@ def force_reset_credit_card(user_id, account_id):
                 'id': account_id,
                 'name': card.get('name', 'Cartão'),
                 'old_balance': old_balance,
-                'new_balance': correct_balance,
+                'new_balance': new_balance,
                 'credit_limit': credit_limit
             }
         else:
@@ -732,16 +724,9 @@ def force_reset_credit_card(user_id, account_id):
             old_balance = card.get('balance', 0)
 
             # Calcular o saldo correto
-            total_expenses = 0
-            account_transactions = [t for t in memory_storage['transactions']
-                                   if t['user_id'] == user_id and t.get('account_id') == account_id]
-            for transaction in account_transactions:
-                total_expenses += transaction.get('expense', 0)
-                total_expenses -= transaction.get('income', 0)
-            
-            correct_balance = credit_limit - total_expenses
+            new_balance = round(float(credit_limit), 2)
 
-            card['balance'] = correct_balance
+            card['balance'] = new_balance
             card['last_reset_date'] = datetime.now(timezone.utc)
             card['updated_at'] = datetime.now(timezone.utc)
 
@@ -749,7 +734,7 @@ def force_reset_credit_card(user_id, account_id):
                 'id': account_id,
                 'name': card.get('name', 'Cartão'),
                 'old_balance': old_balance,
-                'new_balance': correct_balance,
+                'new_balance': new_balance,
                 'credit_limit': credit_limit
             }
 
