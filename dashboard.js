@@ -2154,16 +2154,16 @@ function createMonthlyTrendChart() {
                 {
                     label: 'Receitas',
                     data: [],
-                    borderColor: '#10b981',
-                    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                    borderColor: '#16A34A',
+                    backgroundColor: 'rgba(22, 163, 74, 0.1)',
                     fill: true,
                     tension: 0.4
                 },
                 {
                     label: 'Despesas',
                     data: [],
-                    borderColor: '#ef4444',
-                    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                    borderColor: '#DC2626',
+                    backgroundColor: 'rgba(220, 38, 38, 0.1)',
                     fill: true,
                     tension: 0.4
                 }
@@ -2227,7 +2227,7 @@ function createAnnualChart() {
             datasets: [{
                 label: 'Economia Mensal',
                 data: [],
-                backgroundColor: '#4f46e5'
+                backgroundColor: '#2563EB'
             }]
         },
         options: {
@@ -2327,8 +2327,8 @@ function updateCategoryPieChart() {
     });
 
     const colors = [
-        '#4f46e5', '#10b981', '#f59e0b', '#ef4444',
-        '#8b5cf6', '#06b6d4', '#ec4899', '#14b8a6'
+        '#2563EB', '#16A34A', '#F59E0B', '#DC2626',
+        '#8B5CF6', '#06B6D4', '#EC4899', '#14B8A6'
     ];
 
     charts.categoryPie.data.labels = Object.keys(categoryData);
@@ -2379,8 +2379,8 @@ function updateExpenseDistributionChart() {
     });
 
     const colors = [
-        '#4f46e5', '#10b981', '#f59e0b', '#ef4444',
-        '#8b5cf6', '#06b6d4', '#ec4899', '#14b8a6'
+        '#2563EB', '#16A34A', '#F59E0B', '#DC2626',
+        '#8B5CF6', '#06B6D4', '#EC4899', '#14B8A6'
     ];
 
     charts.expenseDistribution.data.labels = Object.keys(categoryData);
@@ -2391,8 +2391,8 @@ function updateExpenseDistributionChart() {
 
 function updateChartsTheme() {
     const isDark = document.body.getAttribute('data-theme') === 'dark';
-    const textColor = isDark ? '#f1f5f9' : '#1a202c';
-    const gridColor = isDark ? '#334155' : '#e2e8f0';
+    const textColor = isDark ? '#F3F4F6' : '#111827';
+    const gridColor = isDark ? '#232B3D' : '#E5E7EB';
 
     Object.values(charts).forEach(chart => {
         if (chart && chart.options) {
