@@ -2363,10 +2363,10 @@ function calculateMonthData(month) {
 
 // Charts Functions
 function initializeCharts() {
-    createMonthlyTrendChart();
-    createCategoryPieChart();
-    createAnnualChart();
-    createExpenseDistributionChart();
+    try { createMonthlyTrendChart(); } catch (e) { console.error('Erro ao criar gráfico Evolução Mensal:', e); }
+    try { createCategoryPieChart(); } catch (e) { console.error('Erro ao criar gráfico Gastos por Categoria:', e); }
+    try { createAnnualChart(); } catch (e) { console.error('Erro ao criar gráfico Economia Anual:', e); }
+    try { createExpenseDistributionChart(); } catch (e) { console.error('Erro ao criar gráfico Distribuição de Despesas:', e); }
 }
 
 function createMonthlyTrendChart() {
@@ -2423,7 +2423,9 @@ function createCategoryPieChart() {
     const ctx = document.getElementById('categoryPieChart');
     if (!ctx) return;
 
-    if (window.ChartDataLabels) Chart.register(ChartDataLabels);
+    if (window.ChartDataLabels) {
+        try { Chart.register(ChartDataLabels); } catch (e) { console.error('Não foi possível registrar o plugin de rótulos do gráfico:', e); }
+    }
 
     charts.categoryPie = new Chart(ctx.getContext('2d'), {
         type: 'doughnut',
@@ -2518,10 +2520,10 @@ function createExpenseDistributionChart() {
 }
 
 function updateOverviewCharts() {
-    updateMonthlyTrendChart();
-    updateCategoryPieChart();
-    updateAnnualChart();
-    updateExpenseDistributionChart();
+    try { updateMonthlyTrendChart(); } catch (e) { console.error('Erro ao atualizar gráfico Evolução Mensal:', e); }
+    try { updateCategoryPieChart(); } catch (e) { console.error('Erro ao atualizar gráfico Gastos por Categoria:', e); }
+    try { updateAnnualChart(); } catch (e) { console.error('Erro ao atualizar gráfico Economia Anual:', e); }
+    try { updateExpenseDistributionChart(); } catch (e) { console.error('Erro ao atualizar gráfico Distribuição de Despesas:', e); }
 }
 
 let trendChartMonths = 6;
