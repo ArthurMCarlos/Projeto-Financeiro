@@ -91,6 +91,21 @@
                     <h2 id="pageTitle">Visão Geral</h2>
                 </div>
                 <div class="header-right">
+                    <div class="quick-add">
+                        <button id="quickAddBtn" class="btn-primary quick-add-btn" aria-haspopup="true" aria-expanded="false">
+                            <span class="quick-add-plus">+</span><span class="quick-add-label">Novo lançamento</span>
+                        </button>
+                        <div id="quickAddMenu" class="quick-add-menu">
+                            <button type="button" id="quickAddIncome" class="quick-add-option">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5m0 0l-6 6m6-6l6 6"/></svg>
+                                Nova Receita
+                            </button>
+                            <button type="button" id="quickAddExpense" class="quick-add-option">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14m0 0l-6-6m6 6l6-6"/></svg>
+                                Nova Despesa
+                            </button>
+                        </div>
+                    </div>
                     <span id="userAvatar" class="user-avatar">--</span>
                     <span id="userInfo" class="user-info"></span>
                     <button id="themeToggleMobile" class="btn-icon" title="Alternar tema">🌙</button>
@@ -187,38 +202,47 @@
 
                     <section class="stats-grid">
                         <div class="stat-card">
-                            <div class="stat-icon">💰</div>
-                            <div class="stat-content">
-                                <h3>Saldo Total</h3>
-                                <p id="totalBalance" class="stat-value">R$ 0,00</p>
+                            <div class="stat-card-top">
+                                <span class="stat-label">Saldo Total</span>
+                                <div class="stat-icon">💰</div>
                             </div>
+                            <p id="totalBalance" class="stat-value">R$ 0,00</p>
                         </div>
                         <div class="stat-card">
-                            <div class="stat-icon">📈</div>
-                            <div class="stat-content">
-                                <h3>Receitas do Mês</h3>
-                                <p id="monthIncome" class="stat-value">R$ 0,00</p>
+                            <div class="stat-card-top">
+                                <span class="stat-label">Receitas do Mês</span>
+                                <div class="stat-icon">📈</div>
                             </div>
+                            <p id="monthIncome" class="stat-value">R$ 0,00</p>
+                            <span id="monthIncomeDelta" class="stat-delta"></span>
                         </div>
                         <div class="stat-card">
-                            <div class="stat-icon">📉</div>
-                            <div class="stat-content">
-                                <h3>Despesas do Mês</h3>
-                                <p id="monthExpense" class="stat-value">R$ 0,00</p>
+                            <div class="stat-card-top">
+                                <span class="stat-label">Despesas do Mês</span>
+                                <div class="stat-icon">📉</div>
                             </div>
+                            <p id="monthExpense" class="stat-value">R$ 0,00</p>
+                            <span id="monthExpenseDelta" class="stat-delta"></span>
                         </div>
                         <div class="stat-card">
-                            <div class="stat-icon">🎯</div>
-                            <div class="stat-content">
-                                <h3>Economia do Mês</h3>
-                                <p id="monthSavings" class="stat-value">R$ 0,00</p>
+                            <div class="stat-card-top">
+                                <span class="stat-label">Economia do Mês</span>
+                                <div class="stat-icon">🎯</div>
                             </div>
+                            <p id="monthSavings" class="stat-value">R$ 0,00</p>
+                            <span id="monthSavingsDelta" class="stat-delta"></span>
                         </div>
                     </section>
 
                     <section class="charts-section">
                         <div class="chart-card">
-                            <h3>Evolução Mensal</h3>
+                            <div class="chart-card-header">
+                                <h3>Evolução Mensal</h3>
+                                <div class="chart-view-toggle">
+                                    <button class="chart-range-btn active" id="trendRange6m" data-months="6">6M</button>
+                                    <button class="chart-range-btn" id="trendRange12m" data-months="12">12M</button>
+                                </div>
+                            </div>
                             <canvas id="monthlyTrendChart"></canvas>
                         </div>
                         <div class="chart-card">

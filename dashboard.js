@@ -362,6 +362,12 @@ function initializeEventListeners() {
     // ── Category chart list/pie toggle ─────────────────────────────────────
     initializeCategoryViewToggle();
 
+    // ── Evolução Mensal: alternância 6M / 12M ───────────────────────────────
+    initializeTrendRangeToggle();
+
+    // ── Botão "+ Novo lançamento" da topbar ──────────────────────────────────
+    initializeQuickAddMenu();
+
     // ── Mobile navigation ──────────────────────────────────────────────────
     // Sidebar toggle (hamburger button in header)
     const menuToggle = document.getElementById('menuToggle');
@@ -616,6 +622,47 @@ function renderCategoryListView() {
                 </div>
             </div>`;
     }).join('');
+}
+
+// ── Evolução Mensal: alternância 6M / 12M ───────────────────────────────────
+function initializeTrendRangeToggle() {
+    const btn6 = document.getElementById('trendRange6m');
+    const btn12 = document.getElementById('trendRange12m');
+    if (!btn6 || !btn12) return;
+
+    const setRange = (months, activeBtn, inactiveBtn) => {
+        trendChartMonths = months;
+        activeBtn.classList.add('active');
+        inactiveBtn.classList.remove('active');
+        updateMonthlyTrendChart();
+    };
+
+    btn6.addEventListener('click', () => setRange(6, btn6, btn12));
+    btn12.addEventListener('click', () => setRange(12, btn12, btn6));
+}
+
+// ── Botão "+ Novo lançamento" da topbar (reaproveita os modais já existentes) ─
+function initializeQuickAddMenu() {
+    const btn = document.getElementById('quickAddBtn');
+    const menu = document.getElementById('quickAddMenu');
+    const incomeOption = document.getElementById('quickAddIncome');
+    const expenseOption = document.getElementById('quickAddExpense');
+    if (!btn || !menu) return;
+
+    const closeMenu = () => { menu.classList.remove('open'); btn.setAttribute('aria-expanded', 'false'); };
+    const toggleMenu = (e) => {
+        e.stopPropagation();
+        const isOpen = menu.classList.toggle('open');
+        btn.setAttribute('aria-expanded', String(isOpen));
+    };
+
+    btn.addEventListener('click', toggleMenu);
+    document.addEventListener('click', (e) => {
+        if (!menu.contains(e.target) && e.target !== btn) closeMenu();
+    });
+
+    if (incomeOption) incomeOption.addEventListener('click', () => { closeMenu(); openIncomeModal(); });
+    if (expenseOption) expenseOption.addEventListener('click', () => { closeMenu(); openExpenseModal(); });
 }
 
 
@@ -997,6 +1044,9 @@ function updateOverview() {
     const savingsElement = document.getElementById('monthSavings');
     savingsElement.style.color = monthSavings >= 0 ? 'var(--success)' : 'var(--danger)';
 
+    // Comparação com o mês anterior (dados reais já carregados, sem novas chamadas à API)
+    updateKPIDeltas(totalIncome, totalExpense, monthSavings, currentMonth);
+
     // Display recent transactions
     displayRecentTransactions();
 
@@ -1004,11 +1054,51 @@ function updateOverview() {
     updateOverviewCharts();
 }
 
+// Calcula e exibe a variação percentual dos KPIs em relação ao mês anterior
+function updateKPIDeltas(currentIncome, currentExpense, currentSavings, currentMonth) {
+    const [year, month] = currentMonth.split('-').map(Number);
+    const prevDate = new Date(year, month - 2, 1); // month é 1-indexado no currentMonth
+    const prevMonth = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
+
+    const prevIncome = incomes.filter(i => i.month === prevMonth).reduce((s, i) => s + (i.amount || 0), 0);
+    const prevExpense = transactions.filter(t => t.month === prevMonth).reduce((s, t) => s + (t.expense || 0), 0);
+    const prevSavings = prevIncome - prevExpense;
+
+    renderStatDelta('monthIncomeDelta', currentIncome, prevIncome, true);
+    renderStatDelta('monthExpenseDelta', currentExpense, prevExpense, false);
+    renderStatDelta('monthSavingsDelta', currentSavings, prevSavings, true);
+}
+
+// higherIsBetter: true para receitas/economia (subir é bom), false para despesas (subir é ruim)
+function renderStatDelta(elementId, current, previous, higherIsBetter) {
+    const el = document.getElementById(elementId);
+    if (!el) return;
+
+    if (!previous) {
+        el.textContent = '';
+        el.className = 'stat-delta';
+        return;
+    }
+
+    const change = ((current - previous) / Math.abs(previous)) * 100;
+    const isUp = change >= 0;
+    const isGood = higherIsBetter ? isUp : !isUp;
+    const arrow = isUp ? '▲' : '▼';
+
+    el.textContent = `${arrow} ${Math.abs(change).toFixed(1)}% vs mês anterior`;
+    el.className = `stat-delta ${isGood ? 'up' : 'down'}`;
+}
+
 function displayRecentTransactions() {
     const container = document.getElementById('recentTransactions');
     const recent = [...transactions, ...incomes.map(i => ({...i, isIncome: true}))]
         .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
         .slice(0, 5);
+
+    if (recent.length === 0) {
+        container.innerHTML = '<div class="category-list-empty">Nenhuma transação registrada ainda.</div>';
+        return;
+    }
 
     container.innerHTML = recent.map(item => {
         const isIncome = item.isIncome;
@@ -1018,13 +1108,19 @@ function displayRecentTransactions() {
         const amountClass = isIncome ? 'income' : 'expense';
         const sign = isIncome ? '+' : '-';
 
+        let subtitle = formatMonth(item.month);
+        if (!isIncome && item.category_id) {
+            const category = categories.find(c => c._id === item.category_id);
+            if (category) subtitle = `${category.name} · ${subtitle}`;
+        }
+
         return `
             <div class="transaction-item">
                 <div class="transaction-info">
-                    <div class="transaction-icon">${icon}</div>
+                    <div class="transaction-icon ${amountClass}">${icon}</div>
                     <div class="transaction-details">
                         <h4>${description}</h4>
-                        <p>${formatMonth(item.month)}</p>
+                        <p>${subtitle}</p>
                     </div>
                 </div>
                 <div class="transaction-amount ${amountClass}">
@@ -2381,12 +2477,14 @@ function updateOverviewCharts() {
     updateExpenseDistributionChart();
 }
 
+let trendChartMonths = 6;
+
 function updateMonthlyTrendChart() {
     if (!charts.monthlyTrend) return;
 
     const months = [];
     const now = new Date();
-    for (let i = 5; i >= 0; i--) {
+    for (let i = trendChartMonths - 1; i >= 0; i--) {
         const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
         months.push(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`);
     }
