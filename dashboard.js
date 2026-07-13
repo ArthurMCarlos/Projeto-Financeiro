@@ -1089,6 +1089,33 @@ function renderStatDelta(elementId, current, previous, higherIsBetter) {
     el.className = `stat-delta ${isGood ? 'up' : 'down'}`;
 }
 
+// Ícones por categoria/fonte, para dar identidade visual às transações (igual à demonstração)
+const CATEGORY_ICON_MAP = {
+    'mercado': '🛒', 'supermercado': '🛒', 'compras': '🛍️',
+    'alimentação': '🍔', 'alimentacao': '🍔', 'restaurante': '🍔', 'padaria': '🥐',
+    'transporte': '🚗', 'combustível': '⛽', 'combustivel': '⛽', 'uber': '🚕', '99': '🚕',
+    'contas': '📄', 'água': '💧', 'agua': '💧', 'energia': '💡', 'luz': '💡', 'internet': '📶', 'telefone': '📱',
+    'moradia': '🏠', 'aluguel': '🏠', 'condomínio': '🏠', 'condominio': '🏠',
+    'saúde': '💊', 'saude': '💊', 'farmácia': '💊', 'farmacia': '💊',
+    'educação': '🎓', 'educacao': '🎓', 'curso': '🎓',
+    'lazer': '🎮', 'viagem': '✈️', 'assinatura': '📺', 'streaming': '📺',
+    'investimento': '📈', 'presente': '🎁', 'pet': '🐾', 'roupa': '👕', 'vestuário': '👕',
+    'beleza': '💄', 'seguro': '🛡️', 'imposto': '🧾'
+};
+
+function getTransactionIcon(text, isIncome) {
+    const key = (text || '').toLowerCase();
+    for (const term in CATEGORY_ICON_MAP) {
+        if (key.includes(term)) return CATEGORY_ICON_MAP[term];
+    }
+    if (isIncome) {
+        if (key.includes('salário') || key.includes('salario')) return '💼';
+        if (key.includes('freela')) return '💻';
+        return '💵';
+    }
+    return '💸';
+}
+
 function displayRecentTransactions() {
     const container = document.getElementById('recentTransactions');
     const recent = [...transactions, ...incomes.map(i => ({...i, isIncome: true}))]
@@ -1104,15 +1131,17 @@ function displayRecentTransactions() {
         const isIncome = item.isIncome;
         const amount = isIncome ? item.amount : item.expense;
         const description = isIncome ? item.source : item.reason;
-        const icon = isIncome ? '💵' : '💸';
         const amountClass = isIncome ? 'income' : 'expense';
         const sign = isIncome ? '+' : '-';
 
         let subtitle = formatMonth(item.month);
+        let categoryName = '';
         if (!isIncome && item.category_id) {
             const category = categories.find(c => c._id === item.category_id);
-            if (category) subtitle = `${category.name} · ${subtitle}`;
+            if (category) { categoryName = category.name; subtitle = `${category.name} · ${subtitle}`; }
         }
+
+        const icon = getTransactionIcon(`${categoryName} ${description}`, isIncome);
 
         return `
             <div class="transaction-item">
@@ -2373,7 +2402,8 @@ function createMonthlyTrendChart() {
             plugins: {
                 legend: {
                     position: 'top'
-                }
+                },
+                datalabels: { display: false }
             },
             scales: {
                 y: {
@@ -2393,13 +2423,17 @@ function createCategoryPieChart() {
     const ctx = document.getElementById('categoryPieChart');
     if (!ctx) return;
 
+    if (window.ChartDataLabels) Chart.register(ChartDataLabels);
+
     charts.categoryPie = new Chart(ctx.getContext('2d'), {
         type: 'doughnut',
         data: {
             labels: [],
             datasets: [{
                 data: [],
-                backgroundColor: []
+                backgroundColor: [],
+                borderColor: getComputedStyle(document.body).getPropertyValue('--bg-card').trim() || '#fff',
+                borderWidth: 2
             }]
         },
         options: {
@@ -2408,6 +2442,15 @@ function createCategoryPieChart() {
             plugins: {
                 legend: {
                     position: 'right'
+                },
+                datalabels: {
+                    color: '#fff',
+                    font: { weight: '700', size: 12 },
+                    formatter: (value, ctx) => {
+                        const total = ctx.dataset.data.reduce((a, b) => a + (b || 0), 0) || 1;
+                        const pct = (value / total) * 100;
+                        return pct < 4 ? '' : pct.toFixed(1).replace('.', ',') + '%';
+                    }
                 }
             }
         }
@@ -2431,6 +2474,9 @@ function createAnnualChart() {
         options: {
             responsive: true,
             maintainAspectRatio: false,
+            plugins: {
+                datalabels: { display: false }
+            },
             scales: {
                 y: {
                     beginAtZero: true,
@@ -2464,7 +2510,8 @@ function createExpenseDistributionChart() {
             plugins: {
                 legend: {
                     position: 'right'
-                }
+                },
+                datalabels: { display: false }
             }
         }
     });

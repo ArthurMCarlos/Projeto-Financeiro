@@ -164,9 +164,9 @@ h1, h2, h3, h4, h5, h6,
 }
 .sidebar-header h1.brand-text { font-size: 1.05rem; font-weight: 700; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sidebar-collapse-btn, .sidebar-expand-btn { flex-shrink: 0; }
-.sidebar-expand-btn { display: none; }
+.sidebar-header button.sidebar-expand-btn { display: none; }
 .sidebar-collapse-btn svg, .sidebar-expand-btn svg { width: 18px; height: 18px; }
-@media (max-width: 1023px) { .sidebar-collapse-btn { display: none; } }
+@media (max-width: 1023px) { .sidebar-header button.sidebar-collapse-btn { display: none; } }
 
 .sidebar-nav { flex: 1; padding: .75rem 0; overflow-y: auto; overflow-x: hidden; }
 
