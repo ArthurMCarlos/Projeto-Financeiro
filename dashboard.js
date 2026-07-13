@@ -353,6 +353,15 @@ function initializeEventListeners() {
     // Logout
     document.getElementById('logoutBtn').addEventListener('click', logout);
 
+    // ── Sidebar collapse (desktop) ─────────────────────────────────────────
+    initializeSidebarCollapse();
+
+    // ── User avatar (initials) ─────────────────────────────────────────────
+    initializeUserAvatar();
+
+    // ── Category chart list/pie toggle ─────────────────────────────────────
+    initializeCategoryViewToggle();
+
     // ── Mobile navigation ──────────────────────────────────────────────────
     // Sidebar toggle (hamburger button in header)
     const menuToggle = document.getElementById('menuToggle');
@@ -516,6 +525,99 @@ function closeSidebar() {
     if (overlay) overlay.classList.remove('active');
     document.body.style.overflow = '';
 }
+
+// ── Sidebar collapse (desktop "recolher para ícones") ──────────────────────
+function initializeSidebarCollapse() {
+    const app = document.getElementById('app');
+    const collapseBtn = document.getElementById('sidebarCollapseBtn');
+    const expandBtn = document.getElementById('sidebarExpandBtn');
+    if (!app || !collapseBtn) return;
+
+    if (localStorage.getItem('sidebarCollapsed') === 'true') {
+        app.classList.add('sidebar-collapsed');
+    }
+
+    const toggleCollapse = () => {
+        const collapsed = app.classList.toggle('sidebar-collapsed');
+        localStorage.setItem('sidebarCollapsed', collapsed);
+    };
+
+    collapseBtn.addEventListener('click', toggleCollapse);
+    if (expandBtn) expandBtn.addEventListener('click', toggleCollapse);
+}
+
+// ── Avatar com iniciais do usuário ──────────────────────────────────────────
+function initializeUserAvatar() {
+    const avatar = document.getElementById('userAvatar');
+    if (!avatar) return;
+    const name = (currentUser && currentUser.name) ? String(currentUser.name).trim() : '';
+    const initials = name
+        ? name.split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase()
+        : 'U';
+    avatar.textContent = initials;
+}
+
+// ── Toggle lista/pizza — "Gastos por Categoria" ─────────────────────────────
+function initializeCategoryViewToggle() {
+    const pieBtn = document.getElementById('catViewPieBtn');
+    const listBtn = document.getElementById('catViewListBtn');
+    const canvas = document.getElementById('categoryPieChart');
+    const listView = document.getElementById('categoryListView');
+    if (!pieBtn || !listBtn || !canvas || !listView) return;
+
+    pieBtn.addEventListener('click', () => {
+        pieBtn.classList.add('active');
+        listBtn.classList.remove('active');
+        listView.style.display = 'none';
+        canvas.style.display = 'block';
+    });
+
+    listBtn.addEventListener('click', () => {
+        listBtn.classList.add('active');
+        pieBtn.classList.remove('active');
+        canvas.style.display = 'none';
+        listView.style.display = 'flex';
+        renderCategoryListView();
+    });
+}
+
+// Lê os dados já calculados do gráfico de pizza (charts.categoryPie) e
+// renderiza a mesma informação em formato de lista com barras de proporção.
+function renderCategoryListView() {
+    const listView = document.getElementById('categoryListView');
+    if (!listView || !charts.categoryPie) return;
+
+    const { labels, datasets } = charts.categoryPie.data;
+    const values = (datasets && datasets[0] && datasets[0].data) || [];
+    const colors = (datasets && datasets[0] && datasets[0].backgroundColor) || [];
+
+    if (!labels || labels.length === 0) {
+        listView.innerHTML = '<div class="category-list-empty">Nenhum gasto registrado neste mês.</div>';
+        return;
+    }
+
+    const total = values.reduce((sum, v) => sum + (v || 0), 0) || 1;
+
+    listView.innerHTML = labels.map((label, i) => {
+        const value = values[i] || 0;
+        const pct = Math.round((value / total) * 100);
+        const color = colors[i] || 'var(--accent)';
+        return `
+            <div class="category-list-row">
+                <span class="cat-dot" style="background:${color}"></span>
+                <div class="cat-list-info">
+                    <div class="cat-list-top">
+                        <span>${label}</span>
+                        <span>${formatCurrency(value)} · ${pct}%</span>
+                    </div>
+                    <div class="cat-bar-track">
+                        <div class="cat-bar-fill" style="width:${pct}%;background:${color}"></div>
+                    </div>
+                </div>
+            </div>`;
+    }).join('');
+}
+
 
 // API Functions
 // Controla se já tentamos renovar o token nesta sessão (evita loop)
@@ -2335,6 +2437,12 @@ function updateCategoryPieChart() {
     charts.categoryPie.data.datasets[0].data = Object.values(categoryData);
     charts.categoryPie.data.datasets[0].backgroundColor = colors.slice(0, Object.keys(categoryData).length);
     charts.categoryPie.update();
+
+    // Se a visão em lista estiver ativa, mantém ela sincronizada com os novos dados
+    const listView = document.getElementById('categoryListView');
+    if (listView && listView.style.display !== 'none') {
+        renderCategoryListView();
+    }
 }
 
 function updateAnnualChart() {

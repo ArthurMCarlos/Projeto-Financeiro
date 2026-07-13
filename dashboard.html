@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <meta name="theme-color" content="#4f46e5">
+    <meta name="theme-color" content="#2563EB">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <link rel="icon" href="https://img.icons8.com/?size=100&id=aTrrRPCUiwd6&format=png&color=000000"type="image/png">
@@ -18,46 +18,64 @@
         <!-- Sidebar Navigation -->
         <aside class="sidebar">
             <div class="sidebar-header">
-                <h1>Organização Financeira
-                </h1>
+                <div class="sidebar-brand">
+                    <div class="brand-mark">N</div>
+                    <h1 class="brand-text">Nórte Financeiro</h1>
+                </div>
+                <button id="sidebarCollapseBtn" class="btn-icon sidebar-collapse-btn" title="Recolher menu" aria-label="Recolher menu">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3v18M4 3h16a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/></svg>
+                </button>
+                <button id="sidebarExpandBtn" class="btn-icon sidebar-expand-btn" title="Expandir menu" aria-label="Expandir menu">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3v18M4 3h16a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z"/></svg>
+                </button>
             </div>
             <nav class="sidebar-nav">
+                <span class="nav-group-label">Principal</span>
                 <a href="#" class="nav-item active" data-page="overview">
-                    <span class="nav-icon">📊</span>
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg></span>
                     <span class="nav-text">Visão Geral</span>
                 </a>
+
+                <span class="nav-group-label">Movimentações</span>
                 <a href="#" class="nav-item" data-page="incomes">
-                    <span class="nav-icon">💵</span>
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5m0 0l-6 6m6-6l6 6"/></svg></span>
                     <span class="nav-text">Receitas</span>
                 </a>
                 <a href="#" class="nav-item" data-page="expenses">
-                    <span class="nav-icon">💸</span>
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14m0 0l-6-6m6 6l6-6"/></svg></span>
                     <span class="nav-text">Despesas</span>
                 </a>
+
+                <span class="nav-group-label">Planejamento</span>
                 <a href="#" class="nav-item" data-page="budgets">
-                    <span class="nav-icon">🎯</span>
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/></svg></span>
                     <span class="nav-text">Orçamentos</span>
                 </a>
                 <a href="#" class="nav-item" data-page="accounts">
-                    <span class="nav-icon">🏦</span>
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></span>
                     <span class="nav-text">Contas</span>
                 </a>
                 <a href="#" class="nav-item" data-page="goals">
-                    <span class="nav-icon">🏆</span>
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l2.5 6.5L21 9l-5 4.5L17.5 21 12 17.5 6.5 21 8 13.5 3 9l6.5-.5Z"/></svg></span>
                     <span class="nav-text">Metas</span>
                 </a>
                 <a href="#" class="nav-item" data-page="categories">
-                    <span class="nav-icon">🏷️</span>
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.6 12.1L12.9 4.4a2 2 0 0 0-1.4-.6H5a1 1 0 0 0-1 1v6.5a2 2 0 0 0 .6 1.4l7.7 7.7a1 1 0 0 0 1.4 0l6.9-6.9a1 1 0 0 0 0-1.4Z"/><circle cx="8.5" cy="8.5" r="1.2"/></svg></span>
                     <span class="nav-text">Categorias</span>
                 </a>
+
+                <span class="nav-group-label">Análises</span>
                 <a href="#" class="nav-item" data-page="reports">
-                    <span class="nav-icon">📈</span>
+                    <span class="nav-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v4H4zM4 12h10v8H4z"/></svg></span>
                     <span class="nav-text">Relatórios</span>
                 </a>
             </nav>
             <div class="sidebar-footer">
-                <button id="themeToggle" class="btn-icon">🌙</button>
-                <button id="logoutBtn" class="btn-secondary">Sair</button>
+                <button id="themeToggle" class="btn-icon" title="Alternar tema">🌙</button>
+                <button id="logoutBtn" class="btn-secondary">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="logout-icon"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
+                    <span class="logout-text">Sair</span>
+                </button>
             </div>
         </aside>
 
@@ -73,6 +91,7 @@
                     <h2 id="pageTitle">Visão Geral</h2>
                 </div>
                 <div class="header-right">
+                    <span id="userAvatar" class="user-avatar">--</span>
                     <span id="userInfo" class="user-info"></span>
                     <button id="themeToggleMobile" class="btn-icon" title="Alternar tema">🌙</button>
                 </div>
@@ -81,23 +100,23 @@
             <!-- Bottom Navigation (mobile only) -->
             <nav class="bottom-nav" id="bottomNav">
                 <button class="bottom-nav-item active" data-page="overview">
-                    <span class="bn-icon">📊</span>
+                    <span class="bn-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg></span>
                     <span>Geral</span>
                 </button>
                 <button class="bottom-nav-item" data-page="incomes">
-                    <span class="bn-icon">💵</span>
+                    <span class="bn-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5m0 0l-6 6m6-6l6 6"/></svg></span>
                     <span>Receitas</span>
                 </button>
                 <button class="bottom-nav-item" data-page="expenses">
-                    <span class="bn-icon">💸</span>
+                    <span class="bn-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14m0 0l-6-6m6 6l6-6"/></svg></span>
                     <span>Despesas</span>
                 </button>
                 <button class="bottom-nav-item" data-page="accounts">
-                    <span class="bn-icon">🏦</span>
+                    <span class="bn-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></span>
                     <span>Contas</span>
                 </button>
                 <button class="bottom-nav-item" data-page="more" id="moreMenuBtn">
-                    <span class="bn-icon">⋯</span>
+                    <span class="bn-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg></span>
                     <span>Mais</span>
                 </button>
             </nav>
@@ -203,8 +222,19 @@
                             <canvas id="monthlyTrendChart"></canvas>
                         </div>
                         <div class="chart-card">
-                            <h3>Gastos por Categoria</h3>
+                            <div class="chart-card-header">
+                                <h3>Gastos por Categoria</h3>
+                                <div class="chart-view-toggle">
+                                    <button class="chart-view-btn active" id="catViewPieBtn" title="Ver como gráfico de pizza" aria-label="Ver como gráfico de pizza">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.2 15a9 9 0 1 1-9.2-8.9V15Z"/><path d="M12 3v9h9a9 9 0 0 0-9-9Z"/></svg>
+                                    </button>
+                                    <button class="chart-view-btn" id="catViewListBtn" title="Ver como lista" aria-label="Ver como lista">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+                                    </button>
+                                </div>
+                            </div>
                             <canvas id="categoryPieChart"></canvas>
+                            <div id="categoryListView" class="category-list-view" style="display:none"></div>
                         </div>
                     </section>
 
