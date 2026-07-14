@@ -2363,6 +2363,48 @@ function calculateMonthData(month) {
     return { income, expenses, savings };
 }
 
+// Plugin próprio (sem dependência externa) para desenhar o % em cada fatia
+// de gráficos do tipo doughnut/pie. Qualquer erro interno é engolido para
+// nunca quebrar o desenho do gráfico em si.
+const percentageLabelsPlugin = {
+    id: 'percentageLabels',
+    afterDraw(chart) {
+        try {
+            if (chart.config.type !== 'doughnut' && chart.config.type !== 'pie') return;
+            const opts = chart.options.plugins && chart.options.plugins.percentageLabels;
+            if (!opts || opts.display === false) return;
+
+            const meta = chart.getDatasetMeta(0);
+            if (!meta || !meta.data || meta.data.length === 0) return;
+
+            const dataArr = (chart.data.datasets[0] && chart.data.datasets[0].data) || [];
+            const total = dataArr.reduce((sum, v) => sum + (v || 0), 0);
+            if (!total) return;
+
+            const { ctx } = chart;
+            ctx.save();
+            ctx.font = '700 12px Inter, sans-serif';
+            ctx.fillStyle = '#fff';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            meta.data.forEach((arc, i) => {
+                const value = dataArr[i] || 0;
+                const pct = (value / total) * 100;
+                if (pct < 4) return; // evita poluir fatias muito pequenas
+                const pos = arc.tooltipPosition();
+                ctx.fillText(pct.toFixed(1).replace('.', ',') + '%', pos.x, pos.y);
+            });
+            ctx.restore();
+        } catch (e) {
+            // silencioso: rótulo é decorativo, nunca deve derrubar o gráfico
+        }
+    }
+};
+if (typeof Chart !== 'undefined') {
+    try { Chart.register(percentageLabelsPlugin); } catch (e) { console.error('Erro ao registrar plugin de rótulos %:', e); }
+}
+
 // Charts Functions
 function initializeCharts() {
     try { createMonthlyTrendChart(); } catch (e) { console.error('Erro ao criar gráfico Evolução Mensal:', e); }
@@ -2404,8 +2446,7 @@ function createMonthlyTrendChart() {
             plugins: {
                 legend: {
                     position: 'top'
-                },
-                datalabels: { display: false }
+                }
             },
             scales: {
                 y: {
@@ -2425,10 +2466,6 @@ function createCategoryPieChart() {
     const ctx = document.getElementById('categoryPieChart');
     if (!ctx) return;
 
-    if (window.ChartDataLabels) {
-        try { Chart.register(ChartDataLabels); } catch (e) { console.error('Não foi possível registrar o plugin de rótulos do gráfico:', e); }
-    }
-
     charts.categoryPie = new Chart(ctx.getContext('2d'), {
         type: 'doughnut',
         data: {
@@ -2447,15 +2484,7 @@ function createCategoryPieChart() {
                 legend: {
                     position: 'right'
                 },
-                datalabels: {
-                    color: '#fff',
-                    font: { weight: '700', size: 12 },
-                    formatter: (value, ctx) => {
-                        const total = ctx.dataset.data.reduce((a, b) => a + (b || 0), 0) || 1;
-                        const pct = (value / total) * 100;
-                        return pct < 4 ? '' : pct.toFixed(1).replace('.', ',') + '%';
-                    }
-                }
+                percentageLabels: {}
             }
         }
     });
@@ -2478,9 +2507,6 @@ function createAnnualChart() {
         options: {
             responsive: true,
             maintainAspectRatio: false,
-            plugins: {
-                datalabels: { display: false }
-            },
             scales: {
                 y: {
                     beginAtZero: true,
@@ -2514,8 +2540,7 @@ function createExpenseDistributionChart() {
             plugins: {
                 legend: {
                     position: 'right'
-                },
-                datalabels: { display: false }
+                }
             }
         }
     });
