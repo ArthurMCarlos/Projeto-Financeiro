@@ -1121,7 +1121,7 @@ function getTransactionIcon(text, isIncome) {
 function displayRecentTransactions() {
     const container = document.getElementById('recentTransactions');
     const recent = [...transactions, ...incomes.map(i => ({...i, isIncome: true}))]
-        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+        .sort((a, b) => new Date(b.date || b.created_at) - new Date(a.date || a.created_at))
         .slice(0, 5);
 
     if (recent.length === 0) {
@@ -1136,7 +1136,7 @@ function displayRecentTransactions() {
         const amountClass = isIncome ? 'income' : 'expense';
         const sign = isIncome ? '+' : '-';
 
-        let subtitle = formatMonth(item.month);
+        let subtitle = item.date ? formatDate(item.date) : formatMonth(item.month);
         let categoryName = '';
         if (!isIncome && item.category_id) {
             const category = categories.find(c => c._id === item.category_id);
@@ -1343,6 +1343,7 @@ function displayIncomes(filtered = incomes) {
         return `
             <tr class="${rowClass}">
                 <td data-label="Mês">${formatMonth(income.month)}</td>
+                <td data-label="Data">${formatDate(income.date)}</td>
                 <td data-label="Fonte">${escapeHtml(income.source)}</td>
                 <td data-label="Valor">R$ ${formatCurrency(income.amount)}</td>
                 <td data-label="Conta">${escapeHtml(accountName)}</td>
@@ -1385,6 +1386,7 @@ function openIncomeModal(income = null) {
         document.getElementById('incomeModalTitle').textContent = 'Editar Receita';
         document.getElementById('incomeId').value = income._id;
         document.getElementById('incomeMonth').value = income.month;
+        document.getElementById('incomeDate').value = income.date || '';
         document.getElementById('incomeSource').value = income.source;
         document.getElementById('incomeAmount').value = income.amount;
         document.getElementById('incomeAccount').value = income.account_id || '';
@@ -1392,6 +1394,7 @@ function openIncomeModal(income = null) {
         document.getElementById('incomeModalTitle').textContent = 'Nova Receita';
         const now = new Date();
         document.getElementById('incomeMonth').value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        document.getElementById('incomeDate').value = now.toISOString().slice(0, 10);
     }
 
     modal.style.display = 'block';
@@ -1407,6 +1410,7 @@ async function saveIncome(event) {
     const incomeId = document.getElementById('incomeId').value;
     const incomeData = {
         month: document.getElementById('incomeMonth').value,
+        date: document.getElementById('incomeDate').value || null,
         source: document.getElementById('incomeSource').value,
         amount: parseFloat(document.getElementById('incomeAmount').value),
         account_id: document.getElementById('incomeAccount').value || null
@@ -1483,6 +1487,7 @@ function displayExpenses(filtered = transactions) {
         return `
             <tr>
                 <td data-label="Mês">${formatMonth(transaction.month)}</td>
+                <td data-label="Data">${formatDate(transaction.date)}</td>
                 <td data-label="Motivo">${escapeHtml(transaction.reason)}</td>
                 <td data-label="Valor">R$ ${formatCurrency(transaction.expense || 0)}</td>
                 <td data-label="Categoria">${escapeHtml(categoryName)}</td>
@@ -1541,6 +1546,7 @@ function openExpenseModal(expense = null) {
         document.getElementById('expenseModalTitle').textContent = 'Editar Despesa';
         document.getElementById('expenseId').value = expense._id;
         document.getElementById('expenseMonth').value = expense.month;
+        document.getElementById('expenseDate').value = expense.date || '';
         document.getElementById('expenseReason').value = expense.reason;
         document.getElementById('expenseAmount').value = expense.expense;
         document.getElementById('expenseCategory').value = expense.category_id;
@@ -1549,6 +1555,7 @@ function openExpenseModal(expense = null) {
         document.getElementById('expenseModalTitle').textContent = 'Nova Despesa';
         const now = new Date();
         document.getElementById('expenseMonth').value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        document.getElementById('expenseDate').value = now.toISOString().slice(0, 10);
     }
 
     modal.style.display = 'block';
@@ -1568,6 +1575,7 @@ async function saveExpense(event) {
 
     const expenseData = {
         month: expenseMonth,
+        date: document.getElementById('expenseDate').value || null,
         reason: document.getElementById('expenseReason').value,
         expense: expenseAmount,
         category_id: categoryId,
@@ -2795,6 +2803,15 @@ function formatMonth(monthString) {
         year: 'numeric',
         month: 'long'
     });
+}
+
+// Formata "YYYY-MM-DD" -> "DD/MM/AAAA". Retorna '-' quando a data não foi informada
+// (mantém compatibilidade com lançamentos antigos que só tinham o mês).
+function formatDate(dateString) {
+    if (!dateString) return '-';
+    const [year, month, day] = dateString.split('-');
+    if (!year || !month || !day) return '-';
+    return `${day}/${month}/${year}`;
 }
 
 function closeAllModals() {

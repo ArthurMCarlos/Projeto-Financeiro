@@ -1113,6 +1113,7 @@ def create_transaction(current_user):
 
     transaction_data = {
         'month': data['month'],
+        'date': data.get('date'),
         'reason': data['reason'],
         'expense': float(data.get('expense', 0)),
         'current_value': float(data.get('current_value', 0)),
@@ -1160,7 +1161,7 @@ def update_transaction(current_user, transaction_id):
 
     # ── 2. Montar os dados de atualização ──────────────────────────────────
     update_data = {}
-    for field in ['month', 'reason', 'expense', 'current_value', 'category_id', 'income', 'account_id']:
+    for field in ['month', 'date', 'reason', 'expense', 'current_value', 'category_id', 'income', 'account_id']:
         if field in data:
             update_data[field] = float(data[field]) if field in ['expense', 'current_value', 'income'] else data[field]
 
@@ -1286,6 +1287,7 @@ def create_income(current_user):
 
     income_data = {
         'month': data['month'],
+        'date': data.get('date'),
         'source': data['source'],
         'amount': float(data['amount']),
         'account_id': data.get('account_id'),
@@ -1327,7 +1329,7 @@ def update_income(current_user, income_id):
 
     # ── 2. Montar os dados de atualização ──────────────────────────────────
     update_data = {}
-    for field in ['month', 'source', 'amount', 'account_id']:
+    for field in ['month', 'date', 'source', 'amount', 'account_id']:
         if field in data:
             update_data[field] = float(data[field]) if field == 'amount' else data[field]
 
@@ -2217,6 +2219,7 @@ def export_data(current_user, format):
     export_data = []
     for t in transactions:
         export_data.append({
+            'Data': t.get('date', '') or '',
             'Mês': t.get('month', ''),
             'Motivo': t.get('reason', ''),
             'Valor Gasto (R$)': t.get('expense', 0),
@@ -2354,6 +2357,7 @@ def import_data(current_user):
                 category_name = str(row.get('Categoria', '') or '').strip()
                 category_id = category_lookup.get(category_name, '')
                 month = str(row.get('Mês', '') or '')
+                date_value = str(row.get('Data', '') or '')
                 reason = str(row.get('Motivo', '') or '')
                 expense = round(float(row.get('Valor Gasto (R$)', 0) or 0), 2)
                 current_value = round(float(row.get('Valor Atual (R$)', 0) or 0), 2)
@@ -2370,6 +2374,7 @@ def import_data(current_user):
 
                 transactions_to_insert.append({
                     'month':            month,
+                    'date':             date_value,
                     'reason':           reason,
                     'expense':          expense,
                     'current_value':    current_value,
