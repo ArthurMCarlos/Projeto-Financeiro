@@ -1045,10 +1045,12 @@ function updateOverview() {
     savingsElement.style.color = monthSavings >= 0 ? 'var(--success)' : 'var(--danger)';
 
     // Comparação com o mês anterior (dados reais já carregados, sem novas chamadas à API)
-    updateKPIDeltas(totalIncome, totalExpense, monthSavings, currentMonth);
+    try { updateKPIDeltas(totalIncome, totalExpense, monthSavings, currentMonth); }
+    catch (e) { console.error('Erro ao calcular variação dos KPIs:', e); }
 
     // Display recent transactions
-    displayRecentTransactions();
+    try { displayRecentTransactions(); }
+    catch (e) { console.error('Erro ao exibir transações recentes:', e); }
 
     // Update charts
     updateOverviewCharts();
