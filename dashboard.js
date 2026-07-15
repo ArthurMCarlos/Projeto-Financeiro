@@ -364,6 +364,7 @@ function initializeEventListeners() {
 
     // ── Evolução Mensal: alternância 6M / 12M ───────────────────────────────
     initializeTrendRangeToggle();
+    initializeTrendViewToggle();
 
     // ── Botão "+ Novo lançamento" da topbar ──────────────────────────────────
     initializeQuickAddMenu();
@@ -639,6 +640,36 @@ function initializeTrendRangeToggle() {
 
     btn6.addEventListener('click', () => setRange(6, btn6, btn12));
     btn12.addEventListener('click', () => setRange(12, btn12, btn6));
+}
+
+// ── Evolução Mensal: alternância barras / linha ─────────────────────────────
+function initializeTrendViewToggle() {
+    const barBtn = document.getElementById('trendViewBar');
+    const lineBtn = document.getElementById('trendViewLine');
+    if (!barBtn || !lineBtn) return;
+
+    const setType = (type, activeBtn, inactiveBtn) => {
+        if (trendChartType === type) return;
+        trendChartType = type;
+        activeBtn.classList.add('active');
+        inactiveBtn.classList.remove('active');
+
+        // Chart.js não troca bem o "type" de barra <-> linha em um chart já existente,
+        // então recriamos o gráfico e repopulamos com os dados atuais.
+        if (charts.monthlyTrend) {
+            charts.monthlyTrend.destroy();
+            charts.monthlyTrend = null;
+        }
+        try {
+            createMonthlyTrendChart();
+            updateMonthlyTrendChart();
+        } catch (e) {
+            console.error('Erro ao trocar o tipo do gráfico Evolução Mensal:', e);
+        }
+    };
+
+    barBtn.addEventListener('click', () => setType('bar', barBtn, lineBtn));
+    lineBtn.addEventListener('click', () => setType('line', lineBtn, barBtn));
 }
 
 // ── Botão "+ Novo lançamento" da topbar (reaproveita os modais já existentes) ─
@@ -2421,47 +2452,83 @@ function initializeCharts() {
     try { createExpenseDistributionChart(); } catch (e) { console.error('Erro ao criar gráfico Distribuição de Despesas:', e); }
 }
 
+let trendChartType = 'bar';
+
+function buildTrendDatasets() {
+    if (trendChartType === 'line') {
+        return [
+            {
+                label: 'Receitas',
+                data: [],
+                borderColor: '#16A34A',
+                backgroundColor: 'rgba(22, 163, 74, 0.1)',
+                fill: true,
+                tension: 0.4
+            },
+            {
+                label: 'Despesas',
+                data: [],
+                borderColor: '#DC2626',
+                backgroundColor: 'rgba(220, 38, 38, 0.1)',
+                fill: true,
+                tension: 0.4
+            }
+        ];
+    }
+    return [
+        {
+            label: 'Receitas',
+            data: [],
+            backgroundColor: '#2563EB',
+            borderRadius: 6,
+            maxBarThickness: 28
+        },
+        {
+            label: 'Despesas',
+            data: [],
+            backgroundColor: '#DC2626',
+            borderRadius: 6,
+            maxBarThickness: 28
+        }
+    ];
+}
+
 function createMonthlyTrendChart() {
     const ctx = document.getElementById('monthlyTrendChart');
     if (!ctx) return;
 
     charts.monthlyTrend = new Chart(ctx.getContext('2d'), {
-        type: 'line',
+        type: trendChartType,
         data: {
             labels: [],
-            datasets: [
-                {
-                    label: 'Receitas',
-                    data: [],
-                    borderColor: '#16A34A',
-                    backgroundColor: 'rgba(22, 163, 74, 0.1)',
-                    fill: true,
-                    tension: 0.4
-                },
-                {
-                    label: 'Despesas',
-                    data: [],
-                    borderColor: '#DC2626',
-                    backgroundColor: 'rgba(220, 38, 38, 0.1)',
-                    fill: true,
-                    tension: 0.4
-                }
-            ]
+            datasets: buildTrendDatasets()
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
             plugins: {
                 legend: {
-                    position: 'top'
+                    position: 'bottom',
+                    labels: {
+                        usePointStyle: true,
+                        pointStyle: 'circle',
+                        boxWidth: 8,
+                        padding: 16
+                    }
                 }
             },
             scales: {
+                x: {
+                    grid: { display: false }
+                },
                 y: {
                     beginAtZero: true,
+                    grid: { color: 'rgba(148, 163, 184, 0.15)' },
                     ticks: {
                         callback: function(value) {
-                            return 'R$ ' + value.toLocaleString('pt-BR');
+                            return value >= 1000
+                                ? 'R$ ' + (value / 1000).toLocaleString('pt-BR') + 'k'
+                                : 'R$ ' + value.toLocaleString('pt-BR');
                         }
                     }
                 }
@@ -2588,7 +2655,9 @@ function updateMonthlyTrendChart() {
     const labels = months.map(month => {
         const [year, m] = month.split('-');
         const date = new Date(year, m - 1);
-        return date.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
+        return trendChartMonths > 6
+            ? date.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' })
+            : date.toLocaleDateString('pt-BR', { month: 'short' }).replace(/^\w/, c => c.toUpperCase());
     });
 
     charts.monthlyTrend.data.labels = labels;

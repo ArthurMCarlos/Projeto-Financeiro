@@ -238,9 +238,19 @@
                         <div class="chart-card">
                             <div class="chart-card-header">
                                 <h3>Evolução Mensal</h3>
-                                <div class="chart-view-toggle">
-                                    <button class="chart-range-btn active" id="trendRange6m" data-months="6">6M</button>
-                                    <button class="chart-range-btn" id="trendRange12m" data-months="12">12M</button>
+                                <div class="chart-header-controls">
+                                    <div class="chart-view-toggle">
+                                        <button class="chart-view-btn active" id="trendViewBar" title="Ver como barras" aria-label="Ver como barras">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M12 20V4M20 20v-6"/></svg>
+                                        </button>
+                                        <button class="chart-view-btn" id="trendViewLine" title="Ver como linha" aria-label="Ver como linha">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></svg>
+                                        </button>
+                                    </div>
+                                    <div class="chart-view-toggle">
+                                        <button class="chart-range-btn active" id="trendRange6m" data-months="6">6M</button>
+                                        <button class="chart-range-btn" id="trendRange12m" data-months="12">12M</button>
+                                    </div>
                                 </div>
                             </div>
                             <canvas id="monthlyTrendChart"></canvas>

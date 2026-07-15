@@ -463,8 +463,9 @@ h1, h2, h3, h4, h5, h6,
 .chart-card canvas { max-height: 260px; width: 100% !important; }
 @media (min-width: 640px) { .chart-card canvas { max-height: 300px; } }
 
-.chart-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
+.chart-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; flex-wrap: wrap; gap: .5rem; }
 .chart-card-header h3 { margin-bottom: 0; }
+.chart-header-controls { display: flex; align-items: center; gap: 8px; }
 .chart-view-toggle { display: flex; gap: 2px; background: var(--bg-primary); padding: 3px; border-radius: 999px; border: 1px solid var(--border); flex-shrink: 0; }
 .chart-view-btn { width: 28px; height: 24px; border: none; background: transparent; border-radius: 999px; color: var(--text-secondary); cursor: pointer; display: flex; align-items: center; justify-content: center; }
 .chart-view-btn svg { width: 14px; height: 14px; }
