@@ -238,9 +238,17 @@ function getStatusLabel(status) {
     return labels[status] || status;
 }
 
+// Formata "YYYY-MM-DD" -> "DD/MM/AAAA" sem usar new Date()/toLocaleDateString,
+// evitando o deslocamento de fuso horário (ex: exibir um dia antes do real).
+// Mantido idêntico ao formatDate de dashboard.js para os dois nunca conflitarem.
 function formatDate(dateString) {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('pt-BR');
+    if (!dateString || typeof dateString !== 'string') return '-';
+    const datePart = dateString.split('T')[0];
+    const parts = datePart.split('-');
+    if (parts.length !== 3) return '-';
+    const [year, month, day] = parts;
+    if (!/^\d{4}$/.test(year) || !/^\d{1,2}$/.test(month) || !/^\d{1,2}$/.test(day)) return '-';
+    return `${day.padStart(2, '0')}/${month.padStart(2, '0')}/${year}`;
 }
 
 // Modal Functions
