@@ -2433,7 +2433,16 @@ def serve_static(filename):
     # app.root_path é sempre o diretório que contém app.py,
     # independente de como o processo foi iniciado
     try:
-        return send_from_directory(app.root_path, filename)
+        response = send_from_directory(app.root_path, filename)
+        # JS/CSS mudam com frequência durante o desenvolvimento; sem isso, o
+        # navegador pode continuar usando uma versão em cache por horas mesmo
+        # depois de um novo deploy, dando a impressão de que a correção "não
+        # funcionou".
+        if ext.lower() in {'.js', '.css'}:
+            response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+            response.headers['Pragma'] = 'no-cache'
+            response.headers['Expires'] = '0'
+        return response
     except Exception:
         return "Not found", 404
 
