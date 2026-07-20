@@ -838,11 +838,6 @@ async function loadTransactions() {
     try {
         const data = await apiCall('/api/transactions');
         transactions = data.transactions || [];
-        const debugRecent = transactions.filter(t => (t.reason || '').toLowerCase().includes('teste'));
-        if (debugRecent.length) {
-            console.log('[DEBUG DATA] transações "teste" recebidas do servidor (GET /api/transactions):',
-                debugRecent.map(t => ({ reason: t.reason, date: t.date, month: t.month, created_at: t.created_at })));
-        }
         // Remover displayExpenses() aqui - será chamado após todos os dados carregarem
     } catch (error) {
         console.error('Erro ao carregar transações:', error);
@@ -1532,10 +1527,6 @@ function displayExpenses(filtered = transactions) {
         const categoryName = category ? category.name : '-';
         const accountName = account ? account.name : '-';
 
-        if ((transaction.reason || '').toLowerCase().includes('teste')) {
-            console.log('[DEBUG DATA] renderizando linha "teste": transaction.date =', transaction.date, '| formatDate() retornou =', formatDate(transaction.date));
-        }
-
         return `
             <tr>
                 <td data-label="Mês">${formatMonth(transaction.month)}</td>
@@ -1636,9 +1627,6 @@ async function saveExpense(event) {
         income: 0
     };
 
-    console.log('[DEBUG DATA] valor do campo expenseDate no momento do envio:', document.getElementById('expenseDate').value);
-    console.log('[DEBUG DATA] expenseData completo enviado para a API:', JSON.parse(JSON.stringify(expenseData)));
-
     // Verificar orçamento antes de salvar
     const budgetValidation = await checkBudgetLimit(expenseAmount, categoryId, expenseMonth);
 
@@ -1677,11 +1665,10 @@ async function saveExpense(event) {
             });
             showToast('Despesa atualizada com sucesso!', 'success');
         } else {
-            const created = await apiCall('/api/transactions', {
+            await apiCall('/api/transactions', {
                 method: 'POST',
                 body: JSON.stringify(expenseData)
             });
-            console.log('[DEBUG DATA] resposta da API após criar a despesa:', created);
             showToast('Despesa salva com sucesso!', 'success');
         }
 
