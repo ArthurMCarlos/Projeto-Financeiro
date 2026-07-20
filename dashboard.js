@@ -1365,6 +1365,12 @@ function displayIncomes(filtered = incomes) {
         displayIncomes = filtered.filter(income => income.account_id === selectedAccountId);
     }
 
+    displayIncomes = [...displayIncomes].sort((a, b) => {
+        const dateA = a.date ? `${a.date}` : `${a.month}-01`;
+        const dateB = b.date ? `${b.date}` : `${b.month}-01`;
+        return dateB.localeCompare(dateA) || new Date(b.created_at) - new Date(a.created_at);
+    });
+
     tbody.innerHTML = displayIncomes.map(income => {
         const account = accounts.find(a => a._id === income.account_id);
         const accountName = account ? account.name : '-';
@@ -1425,7 +1431,7 @@ function openIncomeModal(income = null) {
         document.getElementById('incomeModalTitle').textContent = 'Nova Receita';
         const now = new Date();
         document.getElementById('incomeMonth').value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-        document.getElementById('incomeDate').value = now.toISOString().slice(0, 10);
+        document.getElementById('incomeDate').value = todayLocalISODate();
     }
 
     modal.style.display = 'block';
@@ -1509,7 +1515,13 @@ function displayExpenses(filtered = transactions) {
         return;
     }
 
-    tbody.innerHTML = filtered.map(transaction => {
+    const sorted = [...filtered].sort((a, b) => {
+        const dateA = a.date ? `${a.date}` : `${a.month}-01`;
+        const dateB = b.date ? `${b.date}` : `${b.month}-01`;
+        return dateB.localeCompare(dateA) || new Date(b.created_at) - new Date(a.created_at);
+    });
+
+    tbody.innerHTML = sorted.map(transaction => {
         const category = categories.find(c => c._id === transaction.category_id);
         const account = accounts.find(a => a._id === transaction.account_id);
         const categoryName = category ? category.name : '-';
@@ -1586,7 +1598,7 @@ function openExpenseModal(expense = null) {
         document.getElementById('expenseModalTitle').textContent = 'Nova Despesa';
         const now = new Date();
         document.getElementById('expenseMonth').value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-        document.getElementById('expenseDate').value = now.toISOString().slice(0, 10);
+        document.getElementById('expenseDate').value = todayLocalISODate();
     }
 
     modal.style.display = 'block';
@@ -2874,13 +2886,25 @@ function formatMonth(monthString) {
     });
 }
 
-// Formata "YYYY-MM-DD" -> "DD/MM/AAAA". Retorna '-' quando a data não foi informada
-// (mantém compatibilidade com lançamentos antigos que só tinham o mês).
+// Formata "YYYY-MM-DD" -> "DD/MM/AAAA". Retorna '-' para qualquer valor ausente ou
+// mal formado (nunca usa new Date()/toLocaleDateString aqui, então nunca pode
+// exibir o texto "Invalid Date" nem sofrer deslocamento de fuso horário).
 function formatDate(dateString) {
-    if (!dateString) return '-';
-    const [year, month, day] = dateString.split('-');
-    if (!year || !month || !day) return '-';
-    return `${day}/${month}/${year}`;
+    if (!dateString || typeof dateString !== 'string') return '-';
+    const datePart = dateString.split('T')[0]; // remove eventual componente de hora
+    const parts = datePart.split('-');
+    if (parts.length !== 3) return '-';
+    const [year, month, day] = parts;
+    if (!/^\d{4}$/.test(year) || !/^\d{1,2}$/.test(month) || !/^\d{1,2}$/.test(day)) return '-';
+    return `${day.padStart(2, '0')}/${month.padStart(2, '0')}/${year}`;
+}
+
+// Data de hoje no formato "YYYY-MM-DD" usando o horário LOCAL do navegador
+// (nunca usar toISOString() aqui, pois ele converte para UTC e pode voltar
+// um dia para trás em fusos como o do Brasil, dependendo da hora do dia).
+function todayLocalISODate() {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 }
 
 function closeAllModals() {
