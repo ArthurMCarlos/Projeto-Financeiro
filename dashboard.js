@@ -838,6 +838,11 @@ async function loadTransactions() {
     try {
         const data = await apiCall('/api/transactions');
         transactions = data.transactions || [];
+        const debugRecent = transactions.filter(t => (t.reason || '').toLowerCase().includes('teste'));
+        if (debugRecent.length) {
+            console.log('[DEBUG DATA] transações "teste" recebidas do servidor (GET /api/transactions):',
+                debugRecent.map(t => ({ reason: t.reason, date: t.date, month: t.month, created_at: t.created_at })));
+        }
         // Remover displayExpenses() aqui - será chamado após todos os dados carregarem
     } catch (error) {
         console.error('Erro ao carregar transações:', error);
@@ -1526,6 +1531,10 @@ function displayExpenses(filtered = transactions) {
         const account = accounts.find(a => a._id === transaction.account_id);
         const categoryName = category ? category.name : '-';
         const accountName = account ? account.name : '-';
+
+        if ((transaction.reason || '').toLowerCase().includes('teste')) {
+            console.log('[DEBUG DATA] renderizando linha "teste": transaction.date =', transaction.date, '| formatDate() retornou =', formatDate(transaction.date));
+        }
 
         return `
             <tr>
