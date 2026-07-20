@@ -1627,6 +1627,9 @@ async function saveExpense(event) {
         income: 0
     };
 
+    console.log('[DEBUG DATA] valor do campo expenseDate no momento do envio:', document.getElementById('expenseDate').value);
+    console.log('[DEBUG DATA] expenseData completo enviado para a API:', JSON.parse(JSON.stringify(expenseData)));
+
     // Verificar orçamento antes de salvar
     const budgetValidation = await checkBudgetLimit(expenseAmount, categoryId, expenseMonth);
 
@@ -1665,10 +1668,11 @@ async function saveExpense(event) {
             });
             showToast('Despesa atualizada com sucesso!', 'success');
         } else {
-            await apiCall('/api/transactions', {
+            const created = await apiCall('/api/transactions', {
                 method: 'POST',
                 body: JSON.stringify(expenseData)
             });
+            console.log('[DEBUG DATA] resposta da API após criar a despesa:', created);
             showToast('Despesa salva com sucesso!', 'success');
         }
 
